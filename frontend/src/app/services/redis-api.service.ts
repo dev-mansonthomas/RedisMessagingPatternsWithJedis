@@ -1,0 +1,79 @@
+import { Injectable, inject } from '@angular/core';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Observable } from 'rxjs';
+
+export interface StreamEntry {
+  id: string;
+  fields: Record<string, string>;
+}
+
+export interface StreamStats {
+  streamLength: number;
+  dlqLength: number;
+  pendingCount: number;
+  success: boolean;
+}
+
+export interface MessagesResponse {
+  success: boolean;
+  streamName: string;
+  messages: StreamEntry[];
+  count: number;
+}
+
+/**
+ * Service for making HTTP requests to the Spring Boot Redis API
+ */
+@Injectable({
+  providedIn: 'root'
+})
+export class RedisApiService {
+  private http = inject(HttpClient);
+  private baseUrl = 'http://localhost:8080/api/dlq';
+
+  /**
+   * Get stream statistics
+   */
+  getStats(streamName: string, dlqStreamName: string, groupName: string): Observable<StreamStats> {
+    const params = new HttpParams()
+      .set('streamName', streamName)
+      .set('dlqStreamName', dlqStreamName)
+      .set('groupName', groupName);
+
+    return this.http.get<StreamStats>(`${this.baseUrl}/stats`, { params });
+  }
+
+  /**
+   * Get messages from a stream
+   */
+  getMessages(streamName: string, count = 10): Observable<MessagesResponse> {
+    const params = new HttpParams()
+      .set('streamName', streamName)
+      .set('count', count.toString());
+
+    return this.http.get<MessagesResponse>(`${this.baseUrl}/messages`, { params });
+  }
+
+  /**
+   * Initialize consumer group for a stream
+   */
+  initializeGroup(streamName: string, groupName: string): Observable<{success: boolean}> {
+    const params = new HttpParams()
+      .set('streamName', streamName)
+      .set('groupName', groupName);
+
+    return this.http.post<{success: boolean}>(`${this.baseUrl}/init-group`, null, { params });
+  }
+
+  /**
+   * Cleanup streams (for testing)
+   */
+  cleanup(streamName: string, dlqStreamName: string): Observable<{success: boolean}> {
+    const params = new HttpParams()
+      .set('streamName', streamName)
+      .set('dlqStreamName', dlqStreamName);
+
+    return this.http.post<{success: boolean}>(`${this.baseUrl}/cleanup`, null, { params });
+  }
+}
+

@@ -22,8 +22,17 @@ bin/
 /nbdist/
 /.nb-gradle/
 
+### angular
+frontend/node_modules/
+frontend/dist/
+
+### Spring
+target/
+
 ### VS Code ###
 .vscode/
 
 ### Mac OS ###
 .DS_Store
+
+/tmp

@@ -1,0 +1,61 @@
+spring:
+  application:
+    name: redis-messaging-patterns
+  
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+# Redis Configuration
+# Docker-ready: Use environment variables for configuration
+# When running in Docker, set REDIS_HOST to the Redis container name
+redis:
+  host: ${REDIS_HOST:localhost}
+  port: ${REDIS_PORT:6379}
+  password: ${REDIS_PASSWORD:}
+  timeout: ${REDIS_TIMEOUT:2000}
+  pool:
+    max-total: ${REDIS_POOL_MAX_TOTAL:50}
+    max-idle: ${REDIS_POOL_MAX_IDLE:20}
+    min-idle: ${REDIS_POOL_MIN_IDLE:5}
+    max-wait-millis: ${REDIS_POOL_MAX_WAIT:3000}
+    test-on-borrow: true
+    test-on-return: false
+    test-while-idle: true
+
+# DLQ Configuration
+dlq:
+  stream-name: ${DLQ_STREAM:mystream}
+  dlq-stream-name: ${DLQ_DLQ_STREAM:mystream:dlq}
+  consumer-group: ${DLQ_CONSUMER_GROUP:mygroup}
+  default-consumer-name: ${DLQ_CONSUMER:worker}
+  default-min-idle-ms: 5000
+  default-count: 100
+  default-max-deliveries: 2
+  high-volume-batch-size: 100
+  high-volume-delay-ms: 10
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    com.redis.patterns: DEBUG
+    redis.clients.jedis: INFO
+    org.springframework.web: DEBUG
+    org.springframework.web.servlet.mvc.method.annotation: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/redis-messaging-patterns.log
+    max-size: 10MB
+    max-history: 30
+
+# WebSocket Configuration
+websocket:
+  endpoint: /ws
+  allowed-origins: "*"
+  message-buffer-size: 8192
+  send-time-limit: 20000
+
