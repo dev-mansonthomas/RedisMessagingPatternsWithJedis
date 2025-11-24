@@ -1,8 +1,10 @@
 package com.redis.patterns.controller;
 
+import com.redis.patterns.dto.DLQConfigRequest;
 import com.redis.patterns.dto.DLQParameters;
 import com.redis.patterns.dto.DLQResponse;
 import com.redis.patterns.dto.TestScenarioRequest;
+import com.redis.patterns.service.DLQConfigService;
 import com.redis.patterns.service.DLQMessagingService;
 import com.redis.patterns.service.DLQTestScenarioService;
 import jakarta.validation.Valid;
@@ -36,6 +38,7 @@ public class DLQController {
 
     private final DLQMessagingService dlqMessagingService;
     private final DLQTestScenarioService testScenarioService;
+    private final DLQConfigService dlqConfigService;
 
     /**
      * Executes the claim_or_dlq operation with the provided parameters.
@@ -303,6 +306,64 @@ public class DLQController {
             response.put("error", e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
+    }
+
+    /**
+     * Save DLQ configuration including maxDeliveries (maxRetry).
+     *
+     * POST /api/dlq/config
+     *
+     * @param config DLQ configuration request
+     * @return Success response
+     */
+    @PostMapping("/config")
+    public ResponseEntity<Map<String, Object>> saveConfig(@Valid @RequestBody DLQConfigRequest config) {
+        log.info("Saving DLQ configuration: {}", config);
+
+        try {
+            dlqConfigService.saveConfiguration(config);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Configuration saved successfully");
+            response.put("maxDeliveries", config.getMaxDeliveries());
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error saving configuration", e);
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * Get DLQ configuration for a specific stream.
+     *
+     * GET /api/dlq/config?streamName=test-stream
+     *
+     * @param streamName Stream name
+     * @return Configuration
+     */
+    @GetMapping("/config")
+    public ResponseEntity<DLQConfigRequest> getConfig(@RequestParam String streamName) {
+        log.info("Getting DLQ configuration for stream: {}", streamName);
+        DLQConfigRequest config = dlqConfigService.getConfiguration(streamName);
+        return ResponseEntity.ok(config);
+    }
+
+    /**
+     * Get all DLQ configurations.
+     *
+     * GET /api/dlq/config/all
+     *
+     * @return All configurations
+     */
+    @GetMapping("/config/all")
+    public ResponseEntity<Map<String, DLQConfigRequest>> getAllConfigs() {
+        log.info("Getting all DLQ configurations");
+        return ResponseEntity.ok(dlqConfigService.getAllConfigurations());
     }
 }
 

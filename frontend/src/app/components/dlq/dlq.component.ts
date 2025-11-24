@@ -1,11 +1,12 @@
 import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
+import { DlqConfigComponent } from '../dlq-config/dlq-config.component';
 
 @Component({
   selector: 'app-dlq',
   standalone: true,
-  imports: [CommonModule, StreamViewerComponent],
+  imports: [CommonModule, StreamViewerComponent, DlqConfigComponent],
   template: `
     <div class="dlq-container">
       <div class="page-header">
@@ -21,8 +22,7 @@ import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component'
             <h2 class="card-title">DLQ Configuration</h2>
           </div>
           <div class="card-content">
-            <p>Configure DLQ parameters and settings here.</p>
-            <!-- DLQ configuration form will be added here -->
+            <app-dlq-config></app-dlq-config>
           </div>
         </div>
 
