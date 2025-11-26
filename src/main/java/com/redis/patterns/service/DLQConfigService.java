@@ -24,7 +24,7 @@ public class DLQConfigService {
         .dlqStreamName("test-stream:dlq")
         .consumerGroup("test-group")
         .consumerName("consumer-1")
-        .minIdleMs(5000L)
+        .minIdleMs(100L)  // 100ms for demo purposes (fast retries)
         .count(100)
         .maxDeliveries(2)
         .build();

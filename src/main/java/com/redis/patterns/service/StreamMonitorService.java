@@ -18,16 +18,21 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Background service that monitors Redis Streams and broadcasts new messages via WebSocket.
- * 
- * This service:
- * - Continuously polls configured streams for new messages
- * - Uses consumer groups to track which messages have been read
- * - Broadcasts new messages to all connected WebSocket clients
- * - Automatically acknowledges messages after broadcasting
+ *
+ * DISABLED: This service is no longer needed because:
+ * - Visualization uses XREVRANGE (read-only, no consumer group)
+ * - WebSocket events from user actions (Process & Success/Fail) provide real-time updates
+ * - Using a consumer group for visualization creates unnecessary PENDING entries
+ *
+ * To re-enable: Remove @Profile("disabled") annotation
+ *
+ * @deprecated Use XREVRANGE for visualization and WebSocket events from actions
  */
 @Slf4j
 @Service
+@org.springframework.context.annotation.Profile("disabled")
 @RequiredArgsConstructor
+@Deprecated
 public class StreamMonitorService {
 
     private final JedisPool jedisPool;

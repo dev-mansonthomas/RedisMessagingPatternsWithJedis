@@ -2,11 +2,12 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
 import { DlqConfigComponent } from '../dlq-config/dlq-config.component';
+import { DlqActionsComponent } from '../dlq-actions/dlq-actions.component';
 
 @Component({
   selector: 'app-dlq',
   standalone: true,
-  imports: [CommonModule, StreamViewerComponent, DlqConfigComponent],
+  imports: [CommonModule, StreamViewerComponent, DlqConfigComponent, DlqActionsComponent],
   template: `
     <div class="dlq-container">
       <div class="page-header">
@@ -16,21 +17,15 @@ import { DlqConfigComponent } from '../dlq-config/dlq-config.component';
         </p>
       </div>
 
-      <div class="content-grid">
-        <div class="card">
-          <div class="card-header">
-            <h2 class="card-title">DLQ Configuration</h2>
-          </div>
-          <div class="card-content">
-            <app-dlq-config></app-dlq-config>
-          </div>
+      <div class="content-layout">
+        <!-- Configuration Section -->
+        <div class="config-section">
+          <app-dlq-config></app-dlq-config>
         </div>
 
-        <div class="card full-width">
-          <div class="card-header">
-            <h2 class="card-title">Main Stream - Real-time Messages</h2>
-          </div>
-          <div class="card-content">
+        <!-- Streams Section -->
+        <div class="streams-section">
+          <div class="stream-column">
             <app-stream-viewer
               stream="test-stream"
               group="test-group"
@@ -38,13 +33,12 @@ import { DlqConfigComponent } from '../dlq-config/dlq-config.component';
               [pageSize]="10">
             </app-stream-viewer>
           </div>
-        </div>
 
-        <div class="card full-width">
-          <div class="card-header">
-            <h2 class="card-title">DLQ Stream - Failed Messages</h2>
+          <div class="actions-column">
+            <app-dlq-actions></app-dlq-actions>
           </div>
-          <div class="card-content">
+
+          <div class="stream-column">
             <app-stream-viewer
               stream="test-stream:dlq"
               group="dlq-group"
@@ -54,23 +48,29 @@ import { DlqConfigComponent } from '../dlq-config/dlq-config.component';
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-header">
-            <h2 class="card-title">Statistics</h2>
-          </div>
-          <div class="card-content">
-            <p>View DLQ statistics and metrics.</p>
-            <!-- Statistics panel will be added here -->
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <h2 class="card-title">Test Controls</h2>
-          </div>
-          <div class="card-content">
-            <p>Start and control DLQ test scenarios.</p>
-            <!-- Test controls will be added here -->
+        <!-- DLQ Pattern Explanation -->
+        <div class="explanation-section">
+          <h3 class="explanation-title">🔄 DLQ Pattern Logic</h3>
+          <div class="pseudocode">
+            <div class="code-block">
+              <div class="code-line"><span class="keyword">function</span> <span class="function"> getNextMessages</span>():</div>
+              <div class="code-line indent1">messages = <span class="function">claimOrDLQ</span>()  <span class="comment">// 1. Retry failed messages first</span></div>
+              <div class="code-line indent1"><span class="keyword">if</span> messages.isEmpty():</div>
+              <div class="code-line indent2">messages = <span class="function">XREADGROUP</span>(">")  <span class="comment">// 2. Then consume new messages</span></div>
+              <div class="code-line indent1"><span class="keyword">return</span> messages</div>
+            </div>
+            <div class="code-block">
+              <div class="code-line"><span class="keyword">function</span> <span class="success"> processSuccess</span>():</div>
+              <div class="code-line indent1">msg = <span class="function">getNextMessages</span>()</div>
+              <div class="code-line indent1"><span class="function">XACK</span>(msg)  <span class="comment">// ✅ Remove from PENDING</span></div>
+            </div>
+            <div class="code-block">
+              <div class="code-line"><span class="keyword">function</span> <span class="error"> processFail</span>():</div>
+              <div class="code-line indent1">msg = <span class="function">getNextMessages</span>()</div>
+              <div class="code-line indent1"><span class="comment">// ❌ No ACK → stays in PENDING → will retry</span></div>
+              <div class="code-line indent1"><span class="keyword">if</span> deliveryCount >= maxRetry:</div>
+              <div class="code-line indent2"><span class="function">XADD</span>(dlq-stream, msg)  <span class="comment">// → DLQ (claimOrDLQ)</span></div>
+            </div>
           </div>
         </div>
       </div>
@@ -78,12 +78,13 @@ import { DlqConfigComponent } from '../dlq-config/dlq-config.component';
   `,
   styles: [`
     .dlq-container {
-      max-width: 1200px;
+      max-width: 1400px;
       margin: 0 auto;
+      padding: 20px;
     }
 
     .page-header {
-      margin-bottom: 32px;
+      margin-bottom: 24px;
     }
 
     .page-title {
@@ -100,54 +101,130 @@ import { DlqConfigComponent } from '../dlq-config/dlq-config.component';
       line-height: 1.6;
     }
 
-    .content-grid {
+    .content-layout {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .config-section {
+      width: 100%;
+    }
+
+    .streams-section {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 24px;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 16px;
+      min-height: 500px;
     }
 
-    .card.full-width {
-      grid-column: 1 / -1;
+    .stream-column {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
     }
 
-    .card {
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-      border: 1px solid #e2e8f0;
-      overflow: hidden;
-      transition: box-shadow 0.2s ease;
+    .actions-column {
+      display: flex;
+      flex-direction: column;
+      width: 200px;
+      min-height: 0;
     }
 
-    .card:hover {
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-
-    .card-header {
-      padding: 20px 24px 16px;
-      border-bottom: 1px solid #e2e8f0;
+    .explanation-section {
+      margin-top: 24px;
+      padding: 20px;
       background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     }
 
-    .card-title {
+    .explanation-title {
       font-size: 18px;
       font-weight: 600;
       color: #1e293b;
-      margin: 0;
+      margin: 0 0 16px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
-    .card-content {
-      padding: 24px;
+    .pseudocode {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .code-block {
+      background: #ffffff;
+      padding: 12px;
+      border-radius: 6px;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    .code-line {
+      margin: 2px 0;
+      white-space: nowrap;
+    }
+
+    .indent1 { padding-left: 20px; }
+    .indent2 { padding-left: 40px; }
+
+    .keyword {
+      color: #7c3aed;
+      font-weight: 600;
+    }
+
+    .function {
+      color: #0891b2;
+      font-weight: 500;
+    }
+
+    .comment {
+      color: #64748b;
+      font-style: italic;
+    }
+
+    .success {
+      color: #16a34a;
+      font-weight: 600;
+    }
+
+    .error {
+      color: #dc2626;
+      font-weight: 600;
+    }
+
+    @media (max-width: 1024px) {
+      .streams-section {
+        grid-template-columns: 1fr;
+      }
+
+      .actions-column {
+        width: 100%;
+      }
+
+      .pseudocode {
+        grid-template-columns: 1fr;
+      }
     }
 
     @media (max-width: 768px) {
-      .content-grid {
-        grid-template-columns: 1fr;
-        gap: 16px;
+      .dlq-container {
+        padding: 12px;
       }
-      
+
       .page-title {
         font-size: 24px;
+      }
+
+      .bottom-section {
+        grid-template-columns: 1fr;
       }
     }
   `]

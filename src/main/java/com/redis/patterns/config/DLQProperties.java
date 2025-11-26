@@ -40,7 +40,7 @@ public class DLQProperties {
     /**
      * Default minimum idle time in milliseconds
      */
-    private long defaultMinIdleMs = 5000L;
+    private long defaultMinIdleMs = 100L;
 
     /**
      * Default count of messages to process
@@ -51,15 +51,5 @@ public class DLQProperties {
      * Default maximum deliveries before DLQ
      */
     private int defaultMaxDeliveries = 2;
-
-    /**
-     * Batch size for high-volume tests
-     */
-    private int highVolumeBatchSize = 100;
-
-    /**
-     * Delay between batches in high-volume tests (milliseconds)
-     */
-    private long highVolumeDelayMs = 10L;
 }
 

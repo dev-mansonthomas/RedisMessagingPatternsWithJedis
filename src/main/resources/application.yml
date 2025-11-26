@@ -30,11 +30,9 @@ dlq:
   dlq-stream-name: ${DLQ_DLQ_STREAM:mystream:dlq}
   consumer-group: ${DLQ_CONSUMER_GROUP:mygroup}
   default-consumer-name: ${DLQ_CONSUMER:worker}
-  default-min-idle-ms: 5000
+  default-min-idle-ms: 100
   default-count: 100
   default-max-deliveries: 2
-  high-volume-batch-size: 100
-  high-volume-delay-ms: 10
 
 # Logging Configuration
 logging:

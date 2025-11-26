@@ -1,7 +1,9 @@
 package com.redis.patterns.service;
 
 import com.redis.patterns.config.DLQProperties;
+import com.redis.patterns.dto.DLQConfigRequest;
 import com.redis.patterns.dto.DLQEvent;
+import com.redis.patterns.dto.DLQMessage;
 import com.redis.patterns.dto.DLQParameters;
 import com.redis.patterns.dto.DLQResponse;
 import lombok.RequiredArgsConstructor;
@@ -14,7 +16,6 @@ import redis.clients.jedis.params.XReadGroupParams;
 import redis.clients.jedis.resps.StreamEntry;
 
 import java.util.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Service implementing the Dead Letter Queue (DLQ) messaging pattern.
@@ -46,9 +47,7 @@ public class DLQMessagingService {
     private final JedisPool jedisPool;
     private final DLQProperties dlqProperties;
     private final WebSocketEventService webSocketEventService;
-
-    // Flag to control high-volume test execution
-    private final AtomicBoolean highVolumeTestRunning = new AtomicBoolean(false);
+    private final DLQConfigService dlqConfigService;
 
     private static final String FUNCTION_NAME = "claim_or_dlq";
     private static final String LIBRARY_NAME = "stream_utils";
@@ -112,16 +111,16 @@ public class DLQMessagingService {
             StreamEntryID messageId = jedis.xadd(streamName, XAddParams.xAddParams(), payload);
             
             log.debug("Message produced with ID: {}", messageId);
-            
+
             // Broadcast event
             webSocketEventService.broadcastEvent(DLQEvent.builder()
-                .eventType(DLQEvent.EventType.INFO)
+                .eventType(DLQEvent.EventType.MESSAGE_PRODUCED)
                 .messageId(messageId.toString())
                 .payload(payload)
                 .streamName(streamName)
                 .details("Message produced")
                 .build());
-            
+
             return messageId.toString();
 
         } catch (Exception e) {
@@ -164,51 +163,101 @@ public class DLQMessagingService {
                 )
             );
 
-            // Parse the result
+            // Parse the result: { reclaimed: [...], dlq: [...] }
             List<String> reclaimedIds = new ArrayList<>();
+            List<String> dlqIds = new ArrayList<>();
             int messagesReclaimed = 0;
+            int messagesSentToDLQ = 0;
 
             if (result instanceof List) {
                 @SuppressWarnings("unchecked")
                 List<Object> resultList = (List<Object>) result;
 
-                for (Object entry : resultList) {
-                    if (entry instanceof List) {
-                        @SuppressWarnings("unchecked")
-                        List<Object> entryList = (List<Object>) entry;
+                // First element: reclaimed messages
+                if (resultList.size() > 0 && resultList.get(0) instanceof List) {
+                    @SuppressWarnings("unchecked")
+                    List<Object> reclaimedList = (List<Object>) resultList.get(0);
 
-                        if (!entryList.isEmpty()) {
-                            String messageId = entryList.get(0).toString();
-                            reclaimedIds.add(messageId);
-                            messagesReclaimed++;
+                    for (Object entry : reclaimedList) {
+                        if (entry instanceof List) {
+                            @SuppressWarnings("unchecked")
+                            List<Object> entryList = (List<Object>) entry;
 
-                            // Parse payload if available
-                            Map<String, String> payload = new HashMap<>();
-                            if (entryList.size() > 1 && entryList.get(1) instanceof List) {
-                                @SuppressWarnings("unchecked")
-                                List<Object> fields = (List<Object>) entryList.get(1);
-                                for (int i = 0; i < fields.size(); i += 2) {
-                                    if (i + 1 < fields.size()) {
-                                        payload.put(fields.get(i).toString(), fields.get(i + 1).toString());
+                            if (!entryList.isEmpty()) {
+                                String messageId = entryList.get(0).toString();
+                                reclaimedIds.add(messageId);
+                                messagesReclaimed++;
+
+                                // Parse payload if available
+                                Map<String, String> payload = new HashMap<>();
+                                if (entryList.size() > 1 && entryList.get(1) instanceof List) {
+                                    @SuppressWarnings("unchecked")
+                                    List<Object> fields = (List<Object>) entryList.get(1);
+                                    for (int i = 0; i < fields.size(); i += 2) {
+                                        if (i + 1 < fields.size()) {
+                                            payload.put(fields.get(i).toString(), fields.get(i + 1).toString());
+                                        }
                                     }
                                 }
-                            }
 
-                            // Broadcast reclaim event
-                            webSocketEventService.broadcastEvent(DLQEvent.builder()
-                                .eventType(DLQEvent.EventType.MESSAGE_RECLAIMED)
-                                .messageId(messageId)
-                                .payload(payload)
-                                .consumer(params.getConsumerName())
-                                .streamName(params.getStreamName())
-                                .details("Message reclaimed for processing")
-                                .build());
+                                // Don't broadcast reclaim events (they're not new messages)
+                            }
+                        }
+                    }
+                }
+
+                // Second element: messages sent to DLQ
+                if (resultList.size() > 1 && resultList.get(1) instanceof List) {
+                    @SuppressWarnings("unchecked")
+                    List<Object> dlqList = (List<Object>) resultList.get(1);
+
+                    for (Object entry : dlqList) {
+                        if (entry instanceof List) {
+                            @SuppressWarnings("unchecked")
+                            List<Object> entryList = (List<Object>) entry;
+
+                            if (entryList.size() >= 3) {
+                                String originalId = entryList.get(0).toString();
+                                String newDlqId = entryList.get(2).toString();
+                                dlqIds.add(originalId);
+                                messagesSentToDLQ++;
+
+                                // Parse payload
+                                Map<String, String> payload = new HashMap<>();
+                                if (entryList.get(1) instanceof List) {
+                                    @SuppressWarnings("unchecked")
+                                    List<Object> fields = (List<Object>) entryList.get(1);
+                                    for (int i = 0; i < fields.size(); i += 2) {
+                                        if (i + 1 < fields.size()) {
+                                            payload.put(fields.get(i).toString(), fields.get(i + 1).toString());
+                                        }
+                                    }
+                                }
+
+                                // Broadcast: message deleted from main stream
+                                webSocketEventService.broadcastEvent(DLQEvent.builder()
+                                    .eventType(DLQEvent.EventType.MESSAGE_DELETED)
+                                    .messageId(originalId)
+                                    .streamName(params.getStreamName())
+                                    .details("Message routed to DLQ (max deliveries reached)")
+                                    .build());
+
+                                // Broadcast: message added to DLQ
+                                webSocketEventService.broadcastEvent(DLQEvent.builder()
+                                    .eventType(DLQEvent.EventType.MESSAGE_PRODUCED)
+                                    .messageId(newDlqId)
+                                    .payload(payload)
+                                    .streamName(params.getDlqStreamName())
+                                    .details("Message routed from main stream (max deliveries reached)")
+                                    .build());
+                            }
                         }
                     }
                 }
             }
 
-            log.info("claim_or_dlq completed: {} messages reclaimed", messagesReclaimed);
+            log.info("claim_or_dlq completed: {} messages reclaimed, {} sent to DLQ",
+                messagesReclaimed, messagesSentToDLQ);
 
             return DLQResponse.builder()
                 .success(true)
@@ -307,12 +356,12 @@ public class DLQMessagingService {
             long acked = jedis.xack(streamName, groupName, new StreamEntryID(messageId));
 
             if (acked > 0) {
-                // Broadcast acknowledgment event
+                // Broadcast acknowledgment event (MESSAGE_DELETED so frontend removes it)
                 webSocketEventService.broadcastEvent(DLQEvent.builder()
-                    .eventType(DLQEvent.EventType.MESSAGE_PROCESSED)
+                    .eventType(DLQEvent.EventType.MESSAGE_DELETED)
                     .messageId(messageId)
                     .streamName(streamName)
-                    .details("Message acknowledged")
+                    .details("Message acknowledged and removed")
                     .build());
 
                 log.debug("Message {} acknowledged successfully", messageId);
@@ -325,6 +374,180 @@ public class DLQMessagingService {
             log.error("Failed to acknowledge message {}", messageId, e);
             return false;
         }
+    }
+
+    /**
+     * Unified method to get the next batch of messages to process.
+     *
+     * This method simplifies message consumption by combining:
+     * 1. Retry messages (from claim_or_dlq) - processed first
+     * 2. New messages (from XREADGROUP) - if needed to reach count
+     *
+     * This provides a single, unified interface for developers, eliminating
+     * the need to manage two separate loops for new messages and retries.
+     *
+     * Usage example:
+     * <pre>
+     * List&lt;DLQMessage&gt; messages = dlqService.getNextMessages(params, 10);
+     *
+     * for (DLQMessage msg : messages) {
+     *     try {
+     *         processMessage(msg);
+     *         dlqService.acknowledgeMessage(msg.getStreamName(), msg.getConsumerGroup(), msg.getId());
+     *     } catch (Exception e) {
+     *         // Message will be automatically retried
+     *         log.error("Failed to process message", e);
+     *     }
+     * }
+     * </pre>
+     *
+     * @param params DLQ parameters
+     * @param count Maximum number of messages to retrieve
+     * @return List of messages ready for processing (retries + new messages)
+     */
+    public List<DLQMessage> getNextMessages(DLQParameters params, int count) {
+        log.debug("Getting next {} messages from stream '{}'", count, params.getStreamName());
+
+        List<DLQMessage> result = new ArrayList<>();
+
+        try (var jedis = jedisPool.getResource()) {
+            // Step 1: Try to get retry messages first (priority to failed messages)
+            DLQResponse retryResponse = claimOrDLQ(params);
+
+            if (retryResponse.isSuccess() && retryResponse.getMessagesReclaimed() > 0) {
+                log.debug("Found {} retry messages", retryResponse.getMessagesReclaimed());
+
+                // Convert reclaimed messages to DLQMessage objects
+                for (String messageId : retryResponse.getReclaimedMessageIds()) {
+                    // Fetch the message details
+                    List<StreamEntry> entries = jedis.xrange(
+                        params.getStreamName(),
+                        new StreamEntryID(messageId),
+                        new StreamEntryID(messageId),
+                        1
+                    );
+
+                    if (!entries.isEmpty()) {
+                        StreamEntry entry = entries.get(0);
+
+                        // Get delivery count from XPENDING
+                        int deliveryCount = getDeliveryCount(
+                            jedis,
+                            params.getStreamName(),
+                            params.getConsumerGroup(),
+                            messageId
+                        );
+
+                        DLQMessage dlqMessage = DLQMessage.builder()
+                            .id(messageId)
+                            .fields(entry.getFields())
+                            .deliveryCount(deliveryCount)
+                            .retry(true)
+                            .streamName(params.getStreamName())
+                            .consumerGroup(params.getConsumerGroup())
+                            .consumerName(params.getConsumerName())
+                            .build();
+
+                        result.add(dlqMessage);
+
+                        log.debug("Added retry message: {}", dlqMessage.getSummary());
+                    }
+                }
+            }
+
+            // Step 2: If we don't have enough messages, read new ones
+            int remaining = count - result.size();
+            if (remaining > 0) {
+                log.debug("Need {} more messages, reading new messages", remaining);
+
+                Map<String, StreamEntryID> streams = new HashMap<>();
+                streams.put(params.getStreamName(), StreamEntryID.XREADGROUP_UNDELIVERED_ENTRY);
+
+                var entries = jedis.xreadGroup(
+                    params.getConsumerGroup(),
+                    params.getConsumerName(),
+                    XReadGroupParams.xReadGroupParams()
+                        .count(remaining)
+                        .block(100), // Block for 100ms
+                    streams
+                );
+
+                if (entries != null) {
+                    for (var streamEntries : entries) {
+                        for (StreamEntry entry : streamEntries.getValue()) {
+                            String messageId = entry.getID().toString();
+
+                            DLQMessage dlqMessage = DLQMessage.builder()
+                                .id(messageId)
+                                .fields(entry.getFields())
+                                .deliveryCount(1) // First delivery
+                                .retry(false)
+                                .streamName(params.getStreamName())
+                                .consumerGroup(params.getConsumerGroup())
+                                .consumerName(params.getConsumerName())
+                                .build();
+
+                            result.add(dlqMessage);
+
+                            log.debug("Added new message: {}", dlqMessage.getSummary());
+
+                            // Broadcast consumption event
+                            webSocketEventService.broadcastEvent(DLQEvent.builder()
+                                .eventType(DLQEvent.EventType.INFO)
+                                .messageId(messageId)
+                                .payload(entry.getFields())
+                                .consumer(params.getConsumerName())
+                                .streamName(params.getStreamName())
+                                .details("Message consumed (pending)")
+                                .build());
+                        }
+                    }
+                }
+            }
+
+            log.info("Returning {} messages ({} retries, {} new)",
+                result.size(),
+                (int) result.stream().filter(DLQMessage::isRetry).count(),
+                (int) result.stream().filter(m -> !m.isRetry()).count()
+            );
+
+            return result;
+
+        } catch (Exception e) {
+            log.error("Failed to get next messages", e);
+            throw new RuntimeException("Failed to get next messages", e);
+        }
+    }
+
+    /**
+     * Helper method to get the delivery count for a specific message.
+     *
+     * @param jedis Jedis connection
+     * @param streamName Stream name
+     * @param groupName Consumer group name
+     * @param messageId Message ID
+     * @return Delivery count, or 2 if not found (since it was just reclaimed)
+     */
+    private int getDeliveryCount(redis.clients.jedis.Jedis jedis, String streamName, String groupName, String messageId) {
+        try {
+            // Use XPENDING with range to get details for this specific message
+            var pending = jedis.xpending(
+                streamName,
+                groupName,
+                redis.clients.jedis.params.XPendingParams.xPendingParams(
+                    new StreamEntryID(messageId),
+                    new StreamEntryID(messageId),
+                    1
+                )
+            );
+
+            if (pending != null && !pending.isEmpty()) {
+                return (int) pending.get(0).getDeliveredTimes();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get delivery count for message {}", messageId, e);
+        }
+        return 2; // Default to 2 for retry messages if we can't determine
     }
 
     /**
@@ -398,6 +621,125 @@ public class DLQMessagingService {
     }
 
     /**
+     * Processes the next available message with success or failure simulation.
+     *
+     * This method:
+     * 1. Ensures consumer groups are initialized
+     * 2. Gets the next message using getNextMessages()
+     * 3. If shouldSucceed is true: acknowledges the message (success)
+     * 4. If shouldSucceed is false: does NOT acknowledge (will retry)
+     *
+     * @param shouldSucceed Whether to simulate success (true) or failure (false)
+     * @return Map containing success status and message details
+     */
+    public Map<String, Object> processNextMessage(boolean shouldSucceed) {
+        log.info("Processing next message with shouldSucceed={}", shouldSucceed);
+
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // Get default configuration
+            DLQConfigRequest config = dlqConfigService.getConfiguration("test-stream");
+
+            // Build parameters
+            DLQParameters params = DLQParameters.builder()
+                .streamName(config.getStreamName())
+                .dlqStreamName(config.getDlqStreamName())
+                .consumerGroup(config.getConsumerGroup())
+                .consumerName(config.getConsumerName())
+                .minIdleMs(config.getMinIdleMs())
+                .count(config.getCount())
+                .maxDeliveries(config.getMaxDeliveries())
+                .build();
+
+            // Initialize consumer groups if they don't exist
+            log.debug("Ensuring consumer groups are initialized");
+            initializeConsumerGroup(params.getStreamName(), params.getConsumerGroup());
+            initializeConsumerGroup(params.getDlqStreamName(), params.getConsumerGroup() + "-dlq");
+
+            // Get next message (retries first, then new messages)
+            List<DLQMessage> messages = getNextMessages(params, 1);
+
+            if (messages.isEmpty()) {
+                response.put("success", false);
+                response.put("message", "No messages available to process");
+                return response;
+            }
+
+            DLQMessage message = messages.get(0);
+            log.info("Processing message: {}", message.getSummary());
+
+            if (shouldSucceed) {
+                // Broadcast MESSAGE_PROCESSED event for visual feedback (flash effect) BEFORE deleting
+                webSocketEventService.broadcastEvent(DLQEvent.builder()
+                    .eventType(DLQEvent.EventType.MESSAGE_PROCESSED)
+                    .messageId(message.getId())
+                    .payload(message.getFields())
+                    .deliveryCount(message.getDeliveryCount())
+                    .consumer(params.getConsumerName())
+                    .streamName(params.getStreamName())
+                    .details("Processing succeeded")
+                    .build());
+
+                // Small delay to allow flash animation to be visible before message disappears
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+
+                // Simulate successful processing - acknowledge the message
+                boolean acked = acknowledgeMessage(
+                    message.getStreamName(),
+                    message.getConsumerGroup(),
+                    message.getId()
+                );
+
+                if (acked) {
+                    response.put("success", true);
+                    response.put("message", String.format("✓ Message %s processed successfully (deliveryCount: %d)",
+                        message.getId(), message.getDeliveryCount()));
+                    response.put("messageId", message.getId());
+                    response.put("deliveryCount", message.getDeliveryCount());
+                    response.put("wasRetry", message.isRetry());
+                } else {
+                    response.put("success", false);
+                    response.put("message", "Failed to acknowledge message");
+                }
+            } else {
+                // Simulate failed processing - do NOT acknowledge (message will retry)
+                response.put("success", true);
+                response.put("message", String.format("✗ Message %s processing failed (will retry, deliveryCount: %d)",
+                    message.getId(), message.getDeliveryCount()));
+                response.put("messageId", message.getId());
+                response.put("deliveryCount", message.getDeliveryCount());
+                response.put("wasRetry", message.isRetry());
+
+                // Broadcast MESSAGE_RECLAIMED event for visual feedback (flash effect)
+                webSocketEventService.broadcastEvent(DLQEvent.builder()
+                    .eventType(DLQEvent.EventType.MESSAGE_RECLAIMED)
+                    .messageId(message.getId())
+                    .payload(message.getFields())
+                    .deliveryCount(message.getDeliveryCount())
+                    .consumer(params.getConsumerName())
+                    .streamName(params.getStreamName())
+                    .details("Processing failed - will retry")
+                    .build());
+
+                log.info("Message {} not acknowledged - will be retried", message.getId());
+            }
+
+            return response;
+
+        } catch (Exception e) {
+            log.error("Error processing next message", e);
+            response.put("success", false);
+            response.put("message", "Error: " + e.getMessage());
+            return response;
+        }
+    }
+
+    /**
      * Cleans up streams and consumer groups for testing.
      *
      * WARNING: This deletes all data in the specified streams.
@@ -423,26 +765,40 @@ public class DLQMessagingService {
         }
     }
 
+
+
     /**
-     * Checks if a high-volume test is currently running.
+     * Deletes a stream if it exists.
      *
-     * @return true if a test is running
+     * @param streamName Name of the stream to delete
+     * @return true if the stream was deleted, false if it didn't exist
      */
-    public boolean isHighVolumeTestRunning() {
-        return highVolumeTestRunning.get();
-    }
+    public boolean deleteStream(String streamName) {
+        log.info("Deleting stream: {}", streamName);
 
-    /**
-     * Stops the currently running high-volume test.
-     */
-    public void stopHighVolumeTest() {
-        if (highVolumeTestRunning.compareAndSet(true, false)) {
-            log.info("High-volume test stop requested");
+        try (var jedis = jedisPool.getResource()) {
+            // Check if stream exists
+            if (!jedis.exists(streamName)) {
+                log.info("Stream '{}' does not exist", streamName);
+                return false;
+            }
 
+            // Delete the stream
+            jedis.del(streamName);
+            log.info("Stream '{}' deleted successfully", streamName);
+
+            // Broadcast event
             webSocketEventService.broadcastEvent(DLQEvent.builder()
                 .eventType(DLQEvent.EventType.INFO)
-                .details("High-volume test stopped by user")
+                .streamName(streamName)
+                .details("Stream deleted")
                 .build());
+
+            return true;
+
+        } catch (Exception e) {
+            log.error("Failed to delete stream '{}'", streamName, e);
+            throw new RuntimeException("Failed to delete stream", e);
         }
     }
 }

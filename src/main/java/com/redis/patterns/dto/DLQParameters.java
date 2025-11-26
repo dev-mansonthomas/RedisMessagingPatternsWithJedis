@@ -57,7 +57,7 @@ public class DLQParameters {
      */
     @Min(value = 0, message = "Min idle time must be non-negative")
     @Builder.Default
-    private long minIdleMs = 5000L;
+    private long minIdleMs = 100L;
 
     /**
      * Maximum number of pending messages to process in one call

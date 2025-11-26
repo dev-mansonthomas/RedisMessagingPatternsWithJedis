@@ -397,7 +397,7 @@ export class DlqConfigComponent {
     dlqStreamName: 'test-stream:dlq',
     consumerGroup: 'test-group',
     consumerName: 'consumer-1',
-    minIdleMs: 5000,
+    minIdleMs: 100,
     count: 100,
     maxDeliveries: 2
   };

@@ -2,12 +2,15 @@ import { Component, Input, OnInit, OnDestroy, inject, ChangeDetectorRef } from '
 import { CommonModule } from '@angular/common';
 import { WebSocketService, DLQEvent } from '../../services/websocket.service';
 import { RedisApiService } from '../../services/redis-api.service';
+import { StreamRefreshService } from '../../services/stream-refresh.service';
 import { Subscription } from 'rxjs';
 
 export interface StreamMessage {
   id: string;
   fields: Record<string, string>;
   timestamp: string;
+  isFlashingError?: boolean;  // For visual feedback on failed processing (red)
+  isFlashingSuccess?: boolean;  // For visual feedback on successful processing (green)
 }
 
 /**
@@ -34,50 +37,37 @@ export interface StreamMessage {
         </div>
       </div>
 
-      <div class="message-table-container">
-        <table class="message-table">
-          <thead>
-            <tr>
-              <th>Message ID</th>
-              <th>Content</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- "More messages..." indicator at top -->
-            <tr *ngIf="hasMoreMessages" class="more-messages-row">
-              <td colspan="2" class="more-messages-cell">
-                <span class="more-messages-text">... {{ totalMessages - pageSize }} more messages ...</span>
-              </td>
-            </tr>
+      <div class="messages-container">
+        <!-- "More messages..." indicator at top -->
+        <div *ngIf="hasMoreMessages" class="more-messages">
+          ... {{ totalMessages - pageSize }} more messages ...
+        </div>
 
-            <!-- Messages in reverse chronological order (newest first, oldest at bottom) -->
-            <tr *ngFor="let message of displayedMessages" class="message-row">
-              <td class="message-id">{{ message.id }}</td>
-              <td class="message-content">
-                <div class="message-fields">
-                  <div *ngFor="let field of getFields(message.fields)" class="field-item">
-                    <span class="field-key">{{ field.key }}:</span>
-                    <span class="field-value">{{ field.value }}</span>
-                  </div>
-                </div>
-              </td>
-            </tr>
+        <!-- Messages as compact cells -->
+        <div *ngFor="let message of displayedMessages"
+             class="message-cell"
+             [class.flash-error]="message.isFlashingError"
+             [class.flash-success]="message.isFlashingSuccess">
+          <div class="message-header">
+            <span class="message-id">{{ message.id }}</span>
+          </div>
+          <div class="message-content">
+            <div *ngFor="let field of getFields(message.fields)" class="field-row">
+              <span class="field-key">{{ field.key }}</span>
+              <span class="field-value">{{ field.value }}</span>
+            </div>
+          </div>
+        </div>
 
-            <!-- Empty state -->
-            <tr *ngIf="displayedMessages.length === 0 && !isLoading" class="empty-row">
-              <td colspan="2" class="empty-cell">
-                <span class="empty-text">No messages in stream</span>
-              </td>
-            </tr>
+        <!-- Empty state -->
+        <div *ngIf="displayedMessages.length === 0 && !isLoading" class="empty-state">
+          No messages in stream
+        </div>
 
-            <!-- Loading state -->
-            <tr *ngIf="isLoading" class="loading-row">
-              <td colspan="2" class="loading-cell">
-                <span class="loading-text">Loading messages...</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <!-- Loading state -->
+        <div *ngIf="isLoading" class="loading-state">
+          Loading messages...
+        </div>
       </div>
 
       <div class="stream-footer">
@@ -91,20 +81,24 @@ export interface StreamMessage {
       border-radius: 8px;
       border: 1px solid #e2e8f0;
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
     }
 
     .stream-header {
-      padding: 16px 20px;
+      padding: 12px 16px;
       background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
       border-bottom: 1px solid #e2e8f0;
       display: flex;
+      flex-shrink: 0;
       justify-content: space-between;
       align-items: center;
     }
 
     .stream-name {
       margin: 0;
-      font-size: 16px;
+      font-size: 14px;
       font-weight: 600;
       color: #1e293b;
     }
@@ -112,10 +106,10 @@ export interface StreamMessage {
     .connection-status {
       display: flex;
       align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      padding: 4px 10px;
-      border-radius: 12px;
+      gap: 4px;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 10px;
       background: #f1f5f9;
     }
 
@@ -130,8 +124,8 @@ export interface StreamMessage {
     }
 
     .status-dot {
-      width: 6px;
-      height: 6px;
+      width: 5px;
+      height: 5px;
       border-radius: 50%;
       background: currentColor;
     }
@@ -140,140 +134,172 @@ export interface StreamMessage {
       font-weight: 500;
     }
 
-    .message-table-container {
-      max-height: 500px;
+    .messages-container {
+      flex: 1;
       overflow-y: auto;
-    }
-
-    .message-table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-
-    .message-table thead {
-      position: sticky;
-      top: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 8px;
       background: #f8fafc;
-      z-index: 10;
     }
 
-    .message-table th {
-      padding: 12px 16px;
-      text-align: left;
+    .more-messages {
+      text-align: center;
+      padding: 8px;
       font-size: 12px;
-      font-weight: 600;
       color: #64748b;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      border-bottom: 2px solid #e2e8f0;
+      font-style: italic;
+      background: #f1f5f9;
+      border-radius: 4px;
     }
 
-    .message-table th:first-child {
-      width: 200px;
+    .message-cell {
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 4px;
+      overflow: hidden;
+      transition: box-shadow 0.15s ease;
     }
 
-    .message-row {
-      border-bottom: 1px solid #f1f5f9;
-      transition: background-color 0.15s ease;
+    .message-cell:hover {
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     }
 
-    .message-row:hover {
-      background-color: #f8fafc;
+    .message-cell.flash-error {
+      animation: flashRed 0.5s ease-in-out 4;
     }
 
-    .message-row td {
-      padding: 12px 16px;
-      vertical-align: top;
+    @keyframes flashRed {
+      0%, 100% {
+        background: white;
+        border-color: #e2e8f0;
+        transform: scale(1);
+      }
+      50% {
+        background: #dc2626;        /* Rouge vif */
+        border-color: #dc2626;
+        color: white;
+        box-shadow: 0 0 20px rgba(220, 38, 38, 0.8);
+        transform: scale(1.02);
+      }
+    }
+
+    .message-cell.flash-error .message-id,
+    .message-cell.flash-error .field-key,
+    .message-cell.flash-error .field-value {
+      animation: textFlashRed 0.5s ease-in-out 4;
+    }
+
+    @keyframes textFlashRed {
+      0%, 100% {
+        color: inherit;
+      }
+      50% {
+        color: white;
+      }
+    }
+
+    .message-cell.flash-success {
+      animation: flashGreen 0.5s ease-in-out 4;
+    }
+
+    @keyframes flashGreen {
+      0%, 100% {
+        background: white;
+        border-color: #e2e8f0;
+        transform: scale(1);
+      }
+      50% {
+        background: #16a34a;        /* Vert vif */
+        border-color: #16a34a;
+        color: white;
+        box-shadow: 0 0 20px rgba(22, 163, 74, 0.8);
+        transform: scale(1.02);
+      }
+    }
+
+    .message-cell.flash-success .message-id,
+    .message-cell.flash-success .field-key,
+    .message-cell.flash-success .field-value {
+      animation: textFlashGreen 0.5s ease-in-out 4;
+    }
+
+    @keyframes textFlashGreen {
+      0%, 100% {
+        color: inherit;
+      }
+      50% {
+        color: white;
+      }
+    }
+
+    .message-header {
+      background: #f8fafc;
+      padding: 6px 10px;
+      border-bottom: 1px solid #e2e8f0;
     }
 
     .message-id {
       font-family: 'Courier New', monospace;
-      font-size: 11px;
-      color: #475569;
-      word-break: break-all;
-    }
-
-    .message-content {
-      font-size: 13px;
-    }
-
-    .message-fields {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .field-item {
-      display: flex;
-      gap: 8px;
-    }
-
-    .field-key {
-      font-weight: 600;
-      color: #475569;
-      min-width: 80px;
-    }
-
-    .field-value {
-      color: #1e293b;
-      word-break: break-word;
-    }
-
-    .more-messages-row {
-      background: #fef3c7;
-    }
-
-    .more-messages-cell {
-      padding: 12px 16px;
-      text-align: center;
-      font-style: italic;
-      color: #92400e;
-      border-bottom: 1px solid #fde68a;
-    }
-
-    .more-messages-text {
-      font-size: 13px;
-    }
-
-    .empty-row, .loading-row {
-      height: 200px;
-    }
-
-    .empty-cell, .loading-cell {
-      text-align: center;
-      color: #94a3b8;
-      font-size: 14px;
-      padding: 40px;
-    }
-
-    .stream-footer {
-      padding: 12px 20px;
-      background: #f8fafc;
-      border-top: 1px solid #e2e8f0;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .message-count {
-      font-size: 12px;
+      font-size: 10px;
       color: #64748b;
       font-weight: 500;
     }
 
-    @media (max-width: 768px) {
-      .message-table th:first-child {
-        width: 120px;
-      }
+    .message-content {
+      padding: 8px 10px;
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
 
-      .field-item {
-        flex-direction: column;
-        gap: 2px;
-      }
+    .field-row {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 12px;
+      align-items: baseline;
+    }
 
-      .field-key {
-        min-width: auto;
-      }
+    .field-key {
+      font-weight: 600;
+      color: #64748b;
+      font-size: 11px;
+      text-align: right;
+      padding-right: 8px;
+      border-right: 2px solid #e2e8f0;
+    }
+
+    .field-value {
+      color: #1e293b;
+      font-weight: 500;
+      font-size: 12px;
+      word-break: break-word;
+    }
+
+    .empty-state, .loading-state {
+      text-align: center;
+      color: #94a3b8;
+      font-size: 13px;
+      padding: 40px 20px;
+      font-style: italic;
+    }
+
+    .stream-footer {
+      padding: 8px 12px;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .message-count {
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 500;
     }
   `]
 })
@@ -285,9 +311,11 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
 
   private wsService = inject(WebSocketService);
   private apiService = inject(RedisApiService);
+  private refreshService = inject(StreamRefreshService);
   private cdr = inject(ChangeDetectorRef);
   private eventSubscription?: Subscription;
   private statusSubscription?: Subscription;
+  private refreshSubscription?: Subscription;
 
   displayedMessages: StreamMessage[] = [];
   totalMessages = 0;
@@ -300,6 +328,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
     if (this.stream && this.group && this.consumer) {
       this.loadInitialData();
       this.connectWebSocket();
+      this.subscribeToRefresh();
     } else {
       console.warn('StreamViewerComponent: Missing required parameters (stream, group, consumer)');
       this.isLoading = false;
@@ -309,6 +338,17 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.eventSubscription?.unsubscribe();
     this.statusSubscription?.unsubscribe();
+    this.refreshSubscription?.unsubscribe();
+  }
+
+  /**
+   * Subscribe to refresh events from StreamRefreshService.
+   */
+  private subscribeToRefresh(): void {
+    this.refreshSubscription = this.refreshService.refresh$.subscribe(() => {
+      console.log(`StreamViewer [${this.stream}]: Received refresh event, reloading data`);
+      this.loadInitialData();
+    });
   }
 
   private loadInitialData(): void {
@@ -385,7 +425,16 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Handle message deletion
+    // Handle MESSAGE_PROCESSED (flash effect for successful processing)
+    if (event.eventType === 'MESSAGE_PROCESSED' && event.messageId) {
+      console.log(`StreamViewer [${this.stream}]: ✅ MESSAGE_PROCESSED received!`);
+      console.log(`StreamViewer [${this.stream}]: Message ID:`, event.messageId);
+      console.log(`StreamViewer [${this.stream}]: Event details:`, event);
+      this.flashMessageSuccess(event.messageId);
+      // Don't return - let MESSAGE_DELETED handle the removal after flash
+    }
+
+    // Handle message deletion (ACK)
     if (event.eventType === 'MESSAGE_DELETED' && event.messageId) {
       console.log(`StreamViewer [${this.stream}]: Deleting message:`, event.messageId);
 
@@ -401,8 +450,23 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Add new message to the list
-    if (event.messageId && event.payload) {
+    // Handle MESSAGE_RECLAIMED (flash effect for failed processing)
+    if (event.eventType === 'MESSAGE_RECLAIMED' && event.messageId) {
+      console.log(`StreamViewer [${this.stream}]: ⚠️ MESSAGE_RECLAIMED received!`);
+      console.log(`StreamViewer [${this.stream}]: Message ID:`, event.messageId);
+      console.log(`StreamViewer [${this.stream}]: Event details:`, event);
+      this.flashMessage(event.messageId);
+      return;
+    }
+
+    // Ignore other processing events (not new messages)
+    if (event.eventType === 'INFO' || event.eventType === 'ERROR') {
+      console.log(`StreamViewer [${this.stream}]: Event ignored (processing event: ${event.eventType})`);
+      return;
+    }
+
+    // Add new message to the list (only for MESSAGE_PRODUCED events)
+    if (event.eventType === 'MESSAGE_PRODUCED' && event.messageId && event.payload) {
       const newMessage: StreamMessage = {
         id: event.messageId,
         fields: event.payload,
@@ -427,6 +491,74 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
 
   getFields(fields: Record<string, string>): {key: string; value: string}[] {
     return Object.entries(fields).map(([key, value]) => ({ key, value }));
+  }
+
+  /**
+   * Public method to test flash animation manually from browser console.
+   * Usage: In console, find the component instance and call testFlash()
+   */
+  public testFlash(): void {
+    if (this.displayedMessages.length > 0) {
+      const firstMessageId = this.displayedMessages[0].id;
+      console.log(`🧪 Testing flash on first message: ${firstMessageId}`);
+      this.flashMessage(firstMessageId);
+    } else {
+      console.warn('No messages to flash');
+    }
+  }
+
+  /**
+   * Flash a message with red animation (for failed processing).
+   * The animation lasts 2 seconds (4 flashes × 0.5s).
+   */
+  private flashMessage(messageId: string): void {
+    console.log(`StreamViewer [${this.stream}]: Flashing message RED ${messageId}`);
+    console.log(`StreamViewer [${this.stream}]: Current displayed messages:`, this.displayedMessages.map(m => m.id));
+
+    // Find the message and set isFlashingError to true
+    const message = this.displayedMessages.find(m => m.id === messageId);
+    if (message) {
+      console.log(`StreamViewer [${this.stream}]: Message found! Setting isFlashingError=true`);
+      message.isFlashingError = true;
+      this.cdr.detectChanges();
+
+      // Remove the flash class after animation completes (2 seconds)
+      setTimeout(() => {
+        console.log(`StreamViewer [${this.stream}]: Removing red flash from message ${messageId}`);
+        message.isFlashingError = false;
+        this.cdr.detectChanges();
+      }, 2000);
+    } else {
+      console.warn(`StreamViewer [${this.stream}]: Message ${messageId} not found for flashing`);
+      console.warn(`StreamViewer [${this.stream}]: Available message IDs:`, this.displayedMessages.map(m => m.id));
+    }
+  }
+
+  /**
+   * Flash a message with green animation (for successful processing).
+   * The animation lasts 2 seconds (4 flashes × 0.5s).
+   */
+  private flashMessageSuccess(messageId: string): void {
+    console.log(`StreamViewer [${this.stream}]: Flashing message GREEN ${messageId}`);
+    console.log(`StreamViewer [${this.stream}]: Current displayed messages:`, this.displayedMessages.map(m => m.id));
+
+    // Find the message and set isFlashingSuccess to true
+    const message = this.displayedMessages.find(m => m.id === messageId);
+    if (message) {
+      console.log(`StreamViewer [${this.stream}]: Message found! Setting isFlashingSuccess=true`);
+      message.isFlashingSuccess = true;
+      this.cdr.detectChanges();
+
+      // Remove the flash class after animation completes (2 seconds)
+      setTimeout(() => {
+        console.log(`StreamViewer [${this.stream}]: Removing green flash from message ${messageId}`);
+        message.isFlashingSuccess = false;
+        this.cdr.detectChanges();
+      }, 2000);
+    } else {
+      console.warn(`StreamViewer [${this.stream}]: Message ${messageId} not found for flashing`);
+      console.warn(`StreamViewer [${this.stream}]: Available message IDs:`, this.displayedMessages.map(m => m.id));
+    }
   }
 }
 

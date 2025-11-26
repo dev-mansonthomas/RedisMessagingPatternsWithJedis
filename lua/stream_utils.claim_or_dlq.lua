@@ -3,12 +3,79 @@
 -- Registers: claim_or_dlq(stream, dlq, group, consumer, minIdleMs, count, maxDeliveries)
 -- Returns: { {entryId, {field1, value1, ...}}, ... } for entries re-claimed for processing
 
---[[local _unpack = unpack or function(t, i, j)
-  -- mini fallback si jamais 'unpack' n'existait pas
-  i = i or 1; j = j or #t
-  if i > j then return end
-  return t[i], unpack(t, i + 1, j)
-end]]
+--[[
+================================================================================
+FUNCTION: claim_or_dlq
+================================================================================
+
+DESCRIPTION:
+  Processes PENDING (unacknowledged) messages from a Redis Stream and routes
+  them based on their delivery count:
+  - deliveryCount < maxDeliveries: Reclaim for reprocessing
+  - deliveryCount >= maxDeliveries: Route to DLQ and ACK
+
+IMPORTANT:
+  This function does NOT read new messages. It only processes messages that
+  have already been read but not acknowledged (PENDING).
+
+--------------------------------------------------------------------------------
+DEVELOPER FLOW (Recommended)
+--------------------------------------------------------------------------------
+
+Use the unified Java API instead of calling this function directly:
+
+  List<DLQMessage> messages = dlqService.getNextMessages(params, 10);
+
+  for (DLQMessage msg : messages) {
+      try {
+          processMessage(msg);
+          dlqService.acknowledgeMessage(msg.getStreamName(),
+                                       msg.getConsumerGroup(),
+                                       msg.getId());
+      } catch (Exception e) {
+          // No ACK = automatic retry
+      }
+  }
+
+Benefits:
+  - Single loop (no duplication)
+  - Full context (deliveryCount, isRetry)
+  - Automatic retry handling
+
+--------------------------------------------------------------------------------
+PARAMETERS
+--------------------------------------------------------------------------------
+
+KEYS:
+  keys[1] = source stream (e.g., "orders")
+  keys[2] = DLQ stream (e.g., "orders:dlq")
+
+ARGS:
+  args[1] = group (e.g., "processors")
+  args[2] = consumer (e.g., "worker-1")
+  args[3] = minIdle in ms (e.g., 5000 = 5 seconds)
+  args[4] = count (max messages to process, e.g., 10)
+  args[5] = maxDeliveries (retry threshold, e.g., 3)
+
+RETURN:
+  Table with two arrays:
+    reclaimed: Messages reclaimed for reprocessing (Redis Stream format)
+    dlq: Message IDs that were routed to DLQ
+
+--------------------------------------------------------------------------------
+EXAMPLE
+--------------------------------------------------------------------------------
+
+FCALL claim_or_dlq 2 orders orders:dlq processors worker-1 5000 10 3
+
+This processes up to 10 pending messages idle for at least 5 seconds:
+  - Messages with deliveryCount < 3: Reclaimed for retry
+  - Messages with deliveryCount >= 3: Sent to DLQ
+
+For complete documentation, see: lua/CLAIM_OR_DLQ_GUIDE.md
+
+================================================================================
+]]--
 
 local function xadd_copy_fields(dst_key, fields)
   local args = { dst_key, '*' }
@@ -53,7 +120,8 @@ redis.register_function('claim_or_dlq', function(keys, args)
     end
   end
 
-  local result = {}
+  local reclaimed = {}
+  local dlq_ids = {}
 
   -- 2) XCLAIM and return payload for those under the threshold
   if #to_process_ids > 0 then
@@ -64,7 +132,7 @@ redis.register_function('claim_or_dlq', function(keys, args)
       if item and item[1] and item[2] then
         local eid    = item[1]
         local fields = item[2]
-        result[#result + 1] = { eid, fields }
+        reclaimed[#reclaimed + 1] = { eid, fields }
       end
     end
   end
@@ -77,11 +145,12 @@ redis.register_function('claim_or_dlq', function(keys, args)
       if item and item[1] and item[2] then
         local eid    = item[1]
         local fields = item[2]
-        xadd_copy_fields(dlq, fields)             -- full copy into DLQ
-        redis.call('XACK', stream, group, eid)    -- prevent further deliveries
+        local new_dlq_id = xadd_copy_fields(dlq, fields)  -- full copy into DLQ
+        redis.call('XACK', stream, group, eid)            -- prevent further deliveries
+        dlq_ids[#dlq_ids + 1] = { eid, fields, new_dlq_id }
       end
     end
   end
 
-  return result
+  return { reclaimed, dlq_ids }
 end)

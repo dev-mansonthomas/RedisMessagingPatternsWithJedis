@@ -219,9 +219,9 @@ The application provides real-time monitoring of Redis Streams through a WebSock
 ```
 Redis Stream (test-stream, test-stream:dlq)
     ↓
-StreamMonitorService (@Scheduled every 500ms)
-    ↓ XREADGROUP (consumer group: monitor-group)
-Detect new messages
+User Actions (Process & Success/Fail buttons)
+    ↓ XREADGROUP (consumer group: test-group)
+Process messages
     ↓
 WebSocketEventService.broadcastEvent()
     ↓ WebSocket (SockJS)
@@ -232,17 +232,19 @@ StreamViewerComponent (Angular)
 Real-time display in UI
 ```
 
+**Architecture Note:** Visualization uses `XREVRANGE` (read-only, no consumer group) to avoid creating unnecessary PENDING entries. Only user actions (Process buttons) use `XREADGROUP` with the `test-group` consumer. See `ARCHITECTURE_VISUALIZATION.md` for details.
+
 ### Key Components
 
 #### Backend (Spring Boot)
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| **StreamMonitorService** | Background service that polls Redis Streams every 500ms and broadcasts new messages | `src/main/java/com/redis/patterns/service/StreamMonitorService.java` |
+| **DLQMessagingService** | Core service for Redis Stream operations (XADD, XREADGROUP, XACK, XREVRANGE) | `src/main/java/com/redis/patterns/service/DLQMessagingService.java` |
 | **WebSocketEventService** | Manages WebSocket sessions and broadcasts events to all connected clients | `src/main/java/com/redis/patterns/service/WebSocketEventService.java` |
 | **DLQEventWebSocketHandler** | Handles WebSocket connection lifecycle (connect, disconnect, errors) | `src/main/java/com/redis/patterns/websocket/DLQEventWebSocketHandler.java` |
 | **DLQController** | REST API endpoints for message retrieval and DLQ operations | `src/main/java/com/redis/patterns/controller/DLQController.java` |
-| **DLQMessagingService** | Core service for Redis Stream operations (XADD, XREADGROUP, XACK) | `src/main/java/com/redis/patterns/service/DLQMessagingService.java` |
+| **StreamMonitorService** | ~~Background polling service~~ (DISABLED - visualization uses XREVRANGE instead) | `src/main/java/com/redis/patterns/service/StreamMonitorService.java` |
 
 #### Frontend (Angular 21)
 
@@ -256,17 +258,33 @@ Real-time display in UI
 ### How It Works
 
 1. **Initial Load**: When the page loads, `StreamViewerComponent` fetches existing messages via REST API (`GET /api/dlq/messages`)
+   - Backend uses `XREVRANGE` (read-only, no consumer group)
+   - No PENDING entries created
+
 2. **WebSocket Connection**: Component connects to WebSocket endpoint (`/api/ws/dlq-events`) using SockJS
-3. **Background Monitoring**: `StreamMonitorService` continuously polls Redis Streams using `XREADGROUP`
-4. **Event Broadcasting**: New messages are broadcast to all WebSocket clients as `MESSAGE_PRODUCED` events
-5. **Real-Time Display**: Angular components receive events and update the UI instantly
+
+3. **User Actions**: When user clicks "Process & Success" or "Process & Fail":
+   - Backend uses `XREADGROUP` with `test-group` consumer
+   - Creates PENDING entries for tracking
+   - Broadcasts events (`MESSAGE_DELETED`, `MESSAGE_PRODUCED`) via WebSocket
+
+4. **Real-Time Display**: Angular components receive events and update the UI instantly
+   - `MESSAGE_PRODUCED`: Add message to display
+   - `MESSAGE_DELETED`: Remove message from display
 
 ### Testing Real-Time Updates
 
-Add a message to Redis and watch it appear instantly in the UI:
+**Option 1: Use the UI**
+- Click "Produce Message" button in the DLQ Config panel
+- Click "Process & Success" to acknowledge and remove
+- Click "Process & Fail" 3 times to route to DLQ
 
+**Option 2: Use Redis CLI**
 ```bash
+# Add a message directly
 redis-cli XADD test-stream * type order.shipped order_id 9999 tracking "TEST123"
+
+# Then use the UI buttons to process it
 ```
 
 ---
@@ -316,7 +334,7 @@ This claims up to 100 messages idle for at least 5 seconds, sending those with 3
 │   │   └── DLQController.java               # REST API endpoints
 │   ├── service/
 │   │   ├── DLQMessagingService.java         # Core Redis Stream operations
-│   │   ├── StreamMonitorService.java        # Background stream monitoring
+│   │   ├── StreamMonitorService.java        # (DISABLED) Background monitoring
 │   │   ├── WebSocketEventService.java       # WebSocket event broadcasting
 │   │   └── DLQTestScenarioService.java      # Test scenario execution
 │   ├── websocket/

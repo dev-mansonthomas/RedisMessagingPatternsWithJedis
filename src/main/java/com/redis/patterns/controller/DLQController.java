@@ -206,7 +206,7 @@ public class DLQController {
     }
 
     /**
-     * Runs a test scenario (step-by-step or high-volume).
+     * Runs a step-by-step test scenario.
      *
      * POST /api/dlq/test
      *
@@ -221,8 +221,11 @@ public class DLQController {
         try {
             if (request.getScenarioType() == TestScenarioRequest.ScenarioType.STEP_BY_STEP) {
                 testScenarioService.runStepByStepScenario(request);
-            } else if (request.getScenarioType() == TestScenarioRequest.ScenarioType.HIGH_VOLUME) {
-                testScenarioService.runHighVolumeScenario(request);
+            } else {
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", false);
+                response.put("error", "Unsupported scenario type");
+                return ResponseEntity.badRequest().body(response);
             }
 
             Map<String, Object> response = new HashMap<>();
@@ -238,42 +241,6 @@ public class DLQController {
             response.put("error", e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
-    }
-
-    /**
-     * Stops the currently running high-volume test.
-     *
-     * POST /api/dlq/test/stop
-     *
-     * @return Success response
-     */
-    @PostMapping("/test/stop")
-    public ResponseEntity<Map<String, Object>> stopTest() {
-        log.info("Stopping high-volume test");
-
-        testScenarioService.stopHighVolumeTest();
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("message", "Stop signal sent");
-
-        return ResponseEntity.ok(response);
-    }
-
-    /**
-     * Gets the status of the high-volume test.
-     *
-     * GET /api/dlq/test/status
-     *
-     * @return Status response
-     */
-    @GetMapping("/test/status")
-    public ResponseEntity<Map<String, Object>> getTestStatus() {
-        Map<String, Object> response = new HashMap<>();
-        response.put("running", testScenarioService.isHighVolumeTestRunning());
-        response.put("success", true);
-
-        return ResponseEntity.ok(response);
     }
 
     /**
@@ -364,6 +331,63 @@ public class DLQController {
     public ResponseEntity<Map<String, DLQConfigRequest>> getAllConfigs() {
         log.info("Getting all DLQ configurations");
         return ResponseEntity.ok(dlqConfigService.getAllConfigurations());
+    }
+
+    /**
+     * Process a single message with success or failure simulation.
+     *
+     * POST /api/dlq/process
+     *
+     * @param request Request containing shouldSucceed flag
+     * @return Response with processing result
+     */
+    @PostMapping("/process")
+    public ResponseEntity<Map<String, Object>> processMessage(@RequestBody Map<String, Object> request) {
+        boolean shouldSucceed = (Boolean) request.getOrDefault("shouldSucceed", true);
+
+        log.info("Processing message with shouldSucceed={}", shouldSucceed);
+
+        try {
+            Map<String, Object> result = dlqMessagingService.processNextMessage(shouldSucceed);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error processing message", e);
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "Error: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * Deletes a stream.
+     *
+     * DELETE /api/dlq/stream/{streamName}
+     *
+     * @param streamName Name of the stream to delete
+     * @return Response indicating success or failure
+     */
+    @DeleteMapping("/stream/{streamName}")
+    public ResponseEntity<Map<String, Object>> deleteStream(@PathVariable String streamName) {
+        log.info("Deleting stream: {}", streamName);
+
+        try {
+            boolean deleted = dlqMessagingService.deleteStream(streamName);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", deleted);
+            response.put("streamName", streamName);
+            response.put("message", deleted ? "Stream deleted successfully" : "Stream does not exist");
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error deleting stream '{}'", streamName, e);
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("streamName", streamName);
+            response.put("message", "Error: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
     }
 }
 

@@ -1,0 +1,369 @@
+import { Component, signal, inject } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
+import { StreamRefreshService } from '../../services/stream-refresh.service';
+
+/**
+ * Component for processing DLQ messages with success or failure simulation.
+ * Provides two actions:
+ * - Process & Success: Gets next message and acknowledges it
+ * - Process & Fail: Gets next message but doesn't acknowledge (will retry)
+ */
+@Component({
+  selector: 'app-dlq-actions',
+  standalone: true,
+  imports: [CommonModule],
+  template: `
+    <div class="dlq-actions">
+      <div class="actions-header">
+        <h3 class="actions-title">Message Processing</h3>
+      </div>
+
+      <div class="actions-content">
+        <button
+          class="action-button generate"
+          [disabled]="isProcessing()"
+          (click)="generateMessages()">
+          <span class="button-icon">⚡</span>
+          <span class="button-text">Generate Messages</span>
+        </button>
+
+        <div class="separator"></div>
+
+        <button
+          class="action-button success"
+          [disabled]="isProcessing()"
+          (click)="processWithSuccess()">
+          <span class="button-icon">✓</span>
+          <span class="button-text">Process & Success</span>
+        </button>
+
+        <button
+          class="action-button fail"
+          [disabled]="isProcessing()"
+          (click)="processWithFail()">
+          <span class="button-icon">✗</span>
+          <span class="button-text">Process & Fail</span>
+        </button>
+
+        <div class="separator"></div>
+
+        <button
+          class="action-button clear"
+          [disabled]="isProcessing()"
+          (click)="clearAllStreams()">
+          <span class="button-icon">🗑️</span>
+          <span class="button-text">Clear All Streams</span>
+        </button>
+
+        <div class="status-message" *ngIf="statusMessage()" [class.error]="isError()">
+          {{ statusMessage() }}
+        </div>
+      </div>
+    </div>
+  `,
+  styles: [`
+    .dlq-actions {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      border: 1px solid #e2e8f0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .actions-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid #e2e8f0;
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    }
+
+    .actions-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1e293b;
+      margin: 0;
+    }
+
+    .actions-content {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      flex: 1;
+    }
+
+    .action-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    .action-button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .action-button:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .action-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .action-button.success {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+    }
+
+    .action-button.success:hover:not(:disabled) {
+      background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    }
+
+    .action-button.fail {
+      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      color: white;
+    }
+
+    .action-button.fail:hover:not(:disabled) {
+      background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+    }
+
+    .action-button.generate {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      color: white;
+    }
+
+    .action-button.generate:hover:not(:disabled) {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    }
+
+    .action-button.clear {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      color: white;
+    }
+
+    .action-button.clear:hover:not(:disabled) {
+      background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+    }
+
+    .separator {
+      height: 1px;
+      background: #e2e8f0;
+      margin: 8px 0;
+    }
+
+    .button-icon {
+      font-size: 18px;
+      font-weight: bold;
+    }
+
+    .button-text {
+      font-size: 14px;
+    }
+
+    .status-message {
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      background: #f0fdf4;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+      text-align: center;
+    }
+
+    .status-message.error {
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+  `]
+})
+export class DlqActionsComponent {
+  private http = inject(HttpClient);
+  private refreshService = inject(StreamRefreshService);
+  private apiUrl = 'http://localhost:8080/api/dlq';
+
+  isProcessing = signal(false);
+  statusMessage = signal('');
+  isError = signal(false);
+
+  generateMessages(): void {
+    this.isProcessing.set(true);
+    this.statusMessage.set('Generating messages...');
+    this.isError.set(false);
+
+    // Generate 4 random messages
+    const messages = this.createRandomMessages(4);
+    let completed = 0;
+    let errors = 0;
+
+    // Send each message
+    messages.forEach((message, index) => {
+      setTimeout(() => {
+        this.http.post<any>(`${this.apiUrl}/produce`, {
+          streamName: 'test-stream',
+          payload: message
+        }).subscribe({
+          next: () => {
+            completed++;
+            if (completed + errors === messages.length) {
+              this.isProcessing.set(false);
+              if (errors === 0) {
+                this.statusMessage.set(`✓ Generated ${completed} messages successfully`);
+                this.isError.set(false);
+              } else {
+                this.statusMessage.set(`⚠ Generated ${completed}/${messages.length} messages (${errors} failed)`);
+                this.isError.set(true);
+              }
+              setTimeout(() => this.statusMessage.set(''), 3000);
+            }
+          },
+          error: () => {
+            errors++;
+            if (completed + errors === messages.length) {
+              this.isProcessing.set(false);
+              this.statusMessage.set(`⚠ Generated ${completed}/${messages.length} messages (${errors} failed)`);
+              this.isError.set(true);
+              setTimeout(() => this.statusMessage.set(''), 3000);
+            }
+          }
+        });
+      }, index * 100); // Stagger requests by 100ms
+    });
+  }
+
+  private createRandomMessages(count: number): Record<string, string>[] {
+    const messages: Record<string, string>[] = [];
+    const reasons = ['payment_failed', 'out_of_stock', 'customer_request', 'fraud_detected'];
+
+    for (let i = 0; i < count; i++) {
+      const orderId = 1000 + Math.floor(Math.random() * 9000); // Random order ID 1000-9999
+      const isCancelled = Math.random() > 0.8; // 20% chance of cancelled (80% created)
+
+      if (isCancelled) {
+        // order.cancelled message
+        messages.push({
+          type: 'order.cancelled',
+          order_id: orderId.toString(),
+          reason: reasons[Math.floor(Math.random() * reasons.length)]
+        });
+      } else {
+        // order.created message
+        const amount = (Math.random() * 100 + 10).toFixed(2); // Random amount 10.00-110.00
+        messages.push({
+          type: 'order.created',
+          order_id: orderId.toString(),
+          amount: amount
+        });
+      }
+    }
+
+    return messages;
+  }
+
+  clearAllStreams(): void {
+    if (!confirm('Are you sure you want to delete all streams (test-stream and test-stream:dlq)? This action cannot be undone.')) {
+      return;
+    }
+
+    this.isProcessing.set(true);
+    this.statusMessage.set('Clearing streams...');
+    this.isError.set(false);
+
+    // Delete both streams
+    const streams = ['test-stream', 'test-stream:dlq'];
+    let completed = 0;
+    let errors = 0;
+
+    streams.forEach((streamName) => {
+      this.http.delete<any>(`${this.apiUrl}/stream/${streamName}`).subscribe({
+        next: (response) => {
+          completed++;
+          if (completed + errors === streams.length) {
+            this.isProcessing.set(false);
+            if (errors === 0) {
+              this.statusMessage.set(`✓ Cleared ${completed} streams successfully`);
+              this.isError.set(false);
+            } else {
+              this.statusMessage.set(`⚠ Cleared ${completed}/${streams.length} streams (${errors} failed)`);
+              this.isError.set(true);
+            }
+
+            // Trigger refresh of all stream viewers
+            this.refreshService.triggerRefresh();
+
+            setTimeout(() => this.statusMessage.set(''), 3000);
+          }
+        },
+        error: (error) => {
+          errors++;
+          if (completed + errors === streams.length) {
+            this.isProcessing.set(false);
+            if (completed > 0) {
+              this.statusMessage.set(`⚠ Cleared ${completed}/${streams.length} streams (${errors} failed)`);
+            } else {
+              this.statusMessage.set('Error: Failed to clear streams');
+            }
+            this.isError.set(true);
+
+            // Trigger refresh even on partial success
+            if (completed > 0) {
+              this.refreshService.triggerRefresh();
+            }
+
+            setTimeout(() => this.statusMessage.set(''), 3000);
+          }
+        }
+      });
+    });
+  }
+
+  processWithSuccess(): void {
+    this.processMessage(true);
+  }
+
+  processWithFail(): void {
+    this.processMessage(false);
+  }
+
+  private processMessage(shouldSucceed: boolean): void {
+    this.isProcessing.set(true);
+    this.statusMessage.set('Processing...');
+    this.isError.set(false);
+
+    this.http.post<any>(`${this.apiUrl}/process`, { shouldSucceed }).subscribe({
+      next: (response) => {
+        if (response.success) {
+          this.statusMessage.set(response.message || 'Message processed successfully');
+          this.isError.set(false);
+        } else {
+          this.statusMessage.set(response.message || 'No messages to process');
+          this.isError.set(true);
+        }
+        this.isProcessing.set(false);
+        setTimeout(() => this.statusMessage.set(''), 3000);
+      },
+      error: (error) => {
+        this.statusMessage.set('Error: ' + (error.error?.message || 'Failed to process message'));
+        this.isError.set(true);
+        this.isProcessing.set(false);
+        setTimeout(() => this.statusMessage.set(''), 3000);
+      }
+    });
+  }
+}
+
