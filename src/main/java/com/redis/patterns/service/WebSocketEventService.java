@@ -2,6 +2,7 @@ package com.redis.patterns.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redis.patterns.dto.DLQEvent;
+import com.redis.patterns.dto.PubSubEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
@@ -103,7 +104,10 @@ public class WebSocketEventService {
             for (WebSocketSession session : sessions) {
                 try {
                     if (session.isOpen()) {
-                        session.sendMessage(textMessage);
+                        // Synchronize on the session to prevent concurrent writes
+                        synchronized (session) {
+                            session.sendMessage(textMessage);
+                        }
                         sessionStats.merge(session.getId(), 1L, (oldValue, newValue) -> oldValue + newValue);
                         successCount++;
                     } else {
@@ -142,11 +146,73 @@ public class WebSocketEventService {
 
     /**
      * Gets statistics for all sessions.
-     * 
+     *
      * @return Map of session ID to message count
      */
     public ConcurrentHashMap<String, Long> getSessionStats() {
         return new ConcurrentHashMap<>(sessionStats);
+    }
+
+    /**
+     * Broadcasts a Pub/Sub event to all connected WebSocket clients.
+     *
+     * This method is similar to broadcastEvent(DLQEvent) but handles PubSubEvent objects.
+     *
+     * @param event The Pub/Sub event to broadcast
+     */
+    public void broadcastEvent(PubSubEvent event) {
+        if (sessions.isEmpty()) {
+            log.trace("No active WebSocket sessions, skipping broadcast");
+            return;
+        }
+
+        try {
+            // Serialize event to JSON
+            String message = objectMapper.writeValueAsString(event);
+            if (message == null) {
+                log.error("Failed to serialize PubSubEvent to JSON");
+                return;
+            }
+            TextMessage textMessage = new TextMessage(message);
+
+            log.debug("Broadcasting PubSubEvent to {} sessions: {}", sessions.size(), event.getEventType());
+
+            // Send to all sessions
+            int successCount = 0;
+            int failureCount = 0;
+
+            for (WebSocketSession session : sessions) {
+                try {
+                    if (session.isOpen()) {
+                        // Synchronize on the session to prevent concurrent writes
+                        synchronized (session) {
+                            session.sendMessage(textMessage);
+                        }
+                        sessionStats.merge(session.getId(), 1L, (oldValue, newValue) -> oldValue + newValue);
+                        successCount++;
+                    } else {
+                        // Session is closed, remove it
+                        sessions.remove(session);
+                        sessionStats.remove(session.getId());
+                        failureCount++;
+                        log.debug("Removed closed session: {}", session.getId());
+                    }
+                } catch (IOException e) {
+                    // Failed to send, remove the session
+                    sessions.remove(session);
+                    sessionStats.remove(session.getId());
+                    failureCount++;
+                    log.warn("Failed to send message to session {}, removing it", session.getId(), e);
+                }
+            }
+
+            if (log.isTraceEnabled()) {
+                log.trace("Broadcast complete: {} successful, {} failed", successCount, failureCount);
+            }
+
+        } catch (Exception e) {
+            log.error("Failed to broadcast PubSubEvent", e);
+        }
     }
 }
 
