@@ -66,23 +66,28 @@ import { DlqActionsComponent } from '../dlq-actions/dlq-actions.component';
 
           <div class="pseudocode">
             <div class="code-block">
-              <div class="code-line"><span class="keyword">function</span> <span class="function"> getNextMessages</span>():</div>
-              <div class="code-line indent1">messages = <span class="function">claimOrDLQ</span>()  <span class="comment">// 1. Retry failed messages first</span></div>
-              <div class="code-line indent1"><span class="keyword">if</span> messages.isEmpty():</div>
-              <div class="code-line indent2">messages = <span class="function">XREADGROUP</span>(">")  <span class="comment">// 2. Then consume new messages</span></div>
+              <div class="code-line"><span class="keyword">function</span> <span class="function"> getNextMessages</span>()  <span class="comment">// Java</span>:</div>
+              <div class="code-line indent1">messages = <span class="function">read_claim_or_dlq</span>()  <span class="comment">// Lua script</span></div>
               <div class="code-line indent1"><span class="keyword">return</span> messages</div>
+              <div class="code-line"></div>
+              <div class="code-line"><span class="comment">// Lua: read_claim_or_dlq()</span></div>
+              <div class="code-line indent1"><span class="comment">// 1. XPENDING → find idle messages</span></div>
+              <div class="code-line indent1"><span class="comment">// 2. If deliveries >= max:</span></div>
+              <div class="code-line indent2"><span class="comment">// XCLAIM + XADD(dlq) + XACK</span></div>
+              <div class="code-line indent1"><span class="comment">// 3. XREADGROUP CLAIM → get pending + new</span></div>
             </div>
             <div class="code-block">
-              <div class="code-line"><span class="keyword">function</span> <span class="success"> processSuccess</span>():</div>
+              <div class="code-line"><span class="keyword">function</span> <span class="success"> processSuccess</span>()  <span class="comment">// Java</span>:</div>
               <div class="code-line indent1">msg = <span class="function">getNextMessages</span>()</div>
+              <div class="code-line indent1"><span class="comment">// 💼 Process business logic</span></div>
               <div class="code-line indent1"><span class="function">XACK</span>(msg)  <span class="comment">// ✅ Remove from PENDING</span></div>
             </div>
             <div class="code-block">
-              <div class="code-line"><span class="keyword">function</span> <span class="error"> processFail</span>():</div>
+              <div class="code-line"><span class="keyword">function</span> <span class="error"> processFail</span>()  <span class="comment">// Java</span>:</div>
               <div class="code-line indent1">msg = <span class="function">getNextMessages</span>()</div>
-              <div class="code-line indent1"><span class="comment">// ❌ No ACK → stays in PENDING → will retry</span></div>
-              <div class="code-line indent1"><span class="keyword">if</span> deliveryCount >= maxRetry:</div>
-              <div class="code-line indent2"><span class="function">XADD</span>(dlq-stream, msg)  <span class="comment">// → DLQ (claimOrDLQ)</span></div>
+              <div class="code-line indent1"><span class="comment">// ❌ No ACK → stays in PENDING</span></div>
+              <div class="code-line indent1"><span class="comment">// → will retry until max deliveries</span></div>
+              <div class="code-line indent1"><span class="comment">// → then added to DLQ + removed from UI</span></div>
             </div>
           </div>
         </div>
