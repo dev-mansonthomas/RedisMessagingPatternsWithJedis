@@ -12,6 +12,7 @@ export interface StreamMessage {
   isFlashingError?: boolean;  // For visual feedback on failed processing (red)
   isFlashingSuccess?: boolean;  // For visual feedback on successful processing (green)
   pendingDeletion?: boolean;  // Mark message for deletion after animation completes
+  isNextToProcess?: boolean;  // Indicates this is the next message to be processed by consumer
 }
 
 /**
@@ -48,7 +49,9 @@ export interface StreamMessage {
         <div *ngFor="let message of displayedMessages"
              class="message-cell"
              [class.flash-error]="message.isFlashingError"
-             [class.flash-success]="message.isFlashingSuccess">
+             [class.flash-success]="message.isFlashingSuccess"
+             [class.next-to-process]="message.isNextToProcess">
+          <span *ngIf="showNextIndicator && message.isNextToProcess" class="next-indicator">➡️</span>
           <div class="message-header">
             <span class="message-id">{{ message.id }}</span>
           </div>
@@ -142,6 +145,7 @@ export interface StreamMessage {
       flex-direction: column;
       gap: 2px;
       padding: 8px;
+      padding-left: 36px;  /* Space for next indicator arrow */
       background: #f8fafc;
     }
 
@@ -161,10 +165,33 @@ export interface StreamMessage {
       border-radius: 4px;
       overflow: hidden;
       transition: box-shadow 0.15s ease;
+      position: relative;
     }
 
     .message-cell:hover {
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .message-cell.next-to-process {
+      border-left: 3px solid #3b82f6;
+    }
+
+    .next-indicator {
+      position: absolute;
+      left: -28px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 20px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.5;
+      }
     }
 
     .message-cell.flash-error {
@@ -309,6 +336,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
   @Input() group = '';
   @Input() consumer = '';
   @Input() pageSize = 10;
+  @Input() showNextIndicator = false;  // Show indicator for next message to process
 
   private wsService = inject(WebSocketService);
   private apiService = inject(RedisApiService);
@@ -374,6 +402,9 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
           this.hasMoreMessages = false; // We don't know total count yet
 
           console.log(`StreamViewer [${this.stream}]: Loaded ${this.displayedMessages.length} messages`, this.displayedMessages);
+
+          // Update next indicator after loading messages
+          this.updateNextIndicator();
         } else {
           console.warn(`StreamViewer [${this.stream}]: Response not successful or no messages`, response);
         }
@@ -429,10 +460,11 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
     // Handle MESSAGE_PROCESSED (flash effect for successful processing)
     if (event.eventType === 'MESSAGE_PROCESSED' && event.messageId) {
       console.log(`StreamViewer [${this.stream}]: ✅ MESSAGE_PROCESSED received!`);
-      console.log(`StreamViewer [${this.stream}]: Message ID:`, event.messageId);
-      console.log(`StreamViewer [${this.stream}]: Event details:`, event);
       this.flashMessageSuccess(event.messageId);
-      // Don't return - let MESSAGE_DELETED handle the removal after flash
+
+      // Move indicator to next message in the list (simple, no backend call)
+      this.moveIndicatorToNextMessage(event.messageId);
+      // Don't return - continue processing other events
     }
 
     // Handle message deletion (ACK)
@@ -458,6 +490,8 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
         console.log(`StreamViewer [${this.stream}]: Message deleted. New count: ${this.totalMessages}`);
       }
 
+      // Update next indicator after deletion
+      this.updateNextIndicator();
       this.cdr.detectChanges();
       return;
     }
@@ -465,9 +499,10 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
     // Handle MESSAGE_RECLAIMED (flash effect for failed processing)
     if (event.eventType === 'MESSAGE_RECLAIMED' && event.messageId) {
       console.log(`StreamViewer [${this.stream}]: ⚠️ MESSAGE_RECLAIMED received!`);
-      console.log(`StreamViewer [${this.stream}]: Message ID:`, event.messageId);
-      console.log(`StreamViewer [${this.stream}]: Event details:`, event);
       this.flashMessage(event.messageId);
+
+      // Move indicator to next message in the list (simple, no backend call)
+      this.moveIndicatorToNextMessage(event.messageId);
       return;
     }
 
@@ -497,12 +532,82 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
         this.hasMoreMessages = true;
       }
 
+      // Update next indicator after adding new message
+      this.updateNextIndicator();
+
       this.cdr.detectChanges(); // Force change detection
     }
   }
 
   getFields(fields: Record<string, string>): {key: string; value: string}[] {
     return Object.entries(fields).map(([key, value]) => ({ key, value }));
+  }
+
+  /**
+   * Update the "next to process" indicator.
+   * Fetches the next pending message ID from Redis and marks it in the UI.
+   */
+  private updateNextIndicator(): void {
+    if (!this.showNextIndicator || this.displayedMessages.length === 0) {
+      console.log(`StreamViewer [${this.stream}]: updateNextIndicator skipped (showNextIndicator=${this.showNextIndicator}, messages=${this.displayedMessages.length})`);
+      return;
+    }
+
+    console.log(`StreamViewer [${this.stream}]: updateNextIndicator called, clearing all indicators`);
+    // Clear all indicators first
+    this.displayedMessages.forEach(msg => msg.isNextToProcess = false);
+
+    // Fetch next pending message ID from Redis
+    console.log(`StreamViewer [${this.stream}]: Fetching next pending message from Redis...`);
+    this.apiService.getNextMessage(this.stream, this.group).subscribe({
+      next: (response) => {
+        console.log(`StreamViewer [${this.stream}]: getNextMessage response:`, response);
+        if (response.success && response.nextMessageId) {
+          console.log(`StreamViewer [${this.stream}]: Next pending message from Redis: ${response.nextMessageId}`);
+          console.log(`StreamViewer [${this.stream}]: Current displayed messages:`, this.displayedMessages.map(m => m.id));
+
+          // Find and mark the message
+          const nextMessage = this.displayedMessages.find(msg => msg.id === response.nextMessageId);
+          if (nextMessage) {
+            nextMessage.isNextToProcess = true;
+            console.log(`StreamViewer [${this.stream}]: ✅ Marked message ${response.nextMessageId} as next to process`);
+            this.cdr.detectChanges();
+          } else {
+            console.warn(`StreamViewer [${this.stream}]: ❌ Next message ${response.nextMessageId} not found in displayed messages`);
+            console.warn(`StreamViewer [${this.stream}]: Available message IDs:`, this.displayedMessages.map(m => m.id));
+          }
+        } else {
+          console.log(`StreamViewer [${this.stream}]: No pending messages (nextMessageId=${response.nextMessageId})`);
+        }
+      },
+      error: (error) => {
+        console.error(`StreamViewer [${this.stream}]: Error fetching next message:`, error);
+      }
+    });
+  }
+
+  /**
+   * Put indicator on the message that was just processed.
+   * Simple: find the message and put the indicator on it.
+   */
+  private moveIndicatorToNextMessage(currentMessageId: string): void {
+    console.log(`StreamViewer [${this.stream}]: Putting indicator on message ${currentMessageId}`);
+
+    // Clear all indicators first
+    this.displayedMessages.forEach(msg => msg.isNextToProcess = false);
+
+    // Find the message that was just processed
+    const message = this.displayedMessages.find(msg => msg.id === currentMessageId);
+
+    if (!message) {
+      console.warn(`StreamViewer [${this.stream}]: Message ${currentMessageId} not found`);
+      return;
+    }
+
+    // Put indicator on this message
+    message.isNextToProcess = true;
+    console.log(`StreamViewer [${this.stream}]: ✅ Put indicator on message ${currentMessageId}`);
+    this.cdr.detectChanges();
   }
 
   /**
@@ -577,6 +682,9 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
             this.totalMessages--;
             console.log(`StreamViewer [${this.stream}]: Message deleted after animation. New count: ${this.totalMessages}`);
           }
+
+          // Update next indicator after deletion
+          this.updateNextIndicator();
         }
 
         this.cdr.detectChanges();

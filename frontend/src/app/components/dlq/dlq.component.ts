@@ -30,7 +30,8 @@ import { DlqActionsComponent } from '../dlq-actions/dlq-actions.component';
               stream="test-stream"
               group="test-group"
               consumer="consumer-1"
-              [pageSize]="10">
+              [pageSize]="10"
+              [showNextIndicator]="true">
             </app-stream-viewer>
           </div>
 

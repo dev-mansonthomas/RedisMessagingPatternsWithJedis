@@ -202,7 +202,77 @@ public class DLQController {
         }
     }
 
+    /**
+     * Get pending messages for a consumer group.
+     *
+     * GET /api/dlq/pending-messages?streamName=xxx&groupName=xxx&count=10
+     *
+     * @param streamName Stream name
+     * @param groupName Consumer group name
+     * @param count Number of pending messages to retrieve (default: 10)
+     * @return List of pending messages
+     */
+    @GetMapping("/pending-messages")
+    public ResponseEntity<Map<String, Object>> getPendingMessages(
+            @RequestParam String streamName,
+            @RequestParam String groupName,
+            @RequestParam(defaultValue = "10") int count) {
 
+        log.debug("Getting {} pending messages for stream: {}, group: {}", count, streamName, groupName);
+
+        try {
+            var messages = dlqMessagingService.getPendingMessages(streamName, groupName, count);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("streamName", streamName);
+            response.put("messages", messages);
+            response.put("count", messages.size());
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error getting pending messages", e);
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+
+
+    /**
+     * Get the next message ID that will be processed (oldest pending message).
+     *
+     * GET /api/dlq/next-message?streamName=xxx&groupName=xxx
+     *
+     * @param streamName Stream name
+     * @param groupName Consumer group name
+     * @return Response with next message ID or null if no pending messages
+     */
+    @GetMapping("/next-message")
+    public ResponseEntity<Map<String, Object>> getNextMessage(
+            @RequestParam String streamName,
+            @RequestParam String groupName) {
+
+        log.debug("Getting next message for stream: {}, group: {}", streamName, groupName);
+
+        try {
+            String nextMessageId = dlqMessagingService.getNextPendingMessageId(streamName, groupName);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("nextMessageId", nextMessageId);
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error getting next message", e);
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
 
     /**
      * Cleans up streams for testing.

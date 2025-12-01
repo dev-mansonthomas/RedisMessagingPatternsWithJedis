@@ -21,6 +21,11 @@ export interface MessagesResponse {
   count: number;
 }
 
+export interface NextMessageResponse {
+  success: boolean;
+  nextMessageId: string | null;
+}
+
 /**
  * Service for making HTTP requests to the Spring Boot Redis API
  */
@@ -55,6 +60,18 @@ export class RedisApiService {
   }
 
   /**
+   * Get pending messages for a consumer group
+   */
+  getPendingMessages(streamName: string, groupName: string, count = 10): Observable<MessagesResponse> {
+    const params = new HttpParams()
+      .set('streamName', streamName)
+      .set('groupName', groupName)
+      .set('count', count.toString());
+
+    return this.http.get<MessagesResponse>(`${this.baseUrl}/pending-messages`, { params });
+  }
+
+  /**
    * Initialize consumer group for a stream
    */
   initializeGroup(streamName: string, groupName: string): Observable<{success: boolean}> {
@@ -63,6 +80,17 @@ export class RedisApiService {
       .set('groupName', groupName);
 
     return this.http.post<{success: boolean}>(`${this.baseUrl}/init-group`, null, { params });
+  }
+
+  /**
+   * Get the next pending message ID (oldest pending message)
+   */
+  getNextMessage(streamName: string, groupName: string): Observable<NextMessageResponse> {
+    const params = new HttpParams()
+      .set('streamName', streamName)
+      .set('groupName', groupName);
+
+    return this.http.get<NextMessageResponse>(`${this.baseUrl}/next-message`, { params });
   }
 
   /**

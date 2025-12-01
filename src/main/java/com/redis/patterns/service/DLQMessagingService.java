@@ -324,6 +324,112 @@ public class DLQMessagingService {
     }
 
     /**
+     * Get pending messages for a consumer group.
+     * Returns messages that have been delivered but not yet acknowledged.
+     *
+     * @param streamName Name of the stream
+     * @param groupName Consumer group name
+     * @param count Maximum number of pending messages to return
+     * @return List of pending messages with their IDs and fields
+     */
+    public List<Map<String, Object>> getPendingMessages(String streamName, String groupName, int count) {
+        log.debug("Getting {} pending messages for stream '{}', group '{}'", count, streamName, groupName);
+
+        List<Map<String, Object>> messages = new ArrayList<>();
+
+        try (var jedis = jedisPool.getResource()) {
+            // Get pending message IDs
+            var pendingInfo = jedis.xpending(
+                streamName,
+                groupName,
+                redis.clients.jedis.params.XPendingParams.xPendingParams(
+                    StreamEntryID.MINIMUM_ID,
+                    StreamEntryID.MAXIMUM_ID,
+                    count
+                )
+            );
+
+            if (pendingInfo != null && !pendingInfo.isEmpty()) {
+                // For each pending message ID, fetch the actual message content
+                for (var info : pendingInfo) {
+                    StreamEntryID messageId = info.getID();
+
+                    // Use XRANGE to get the message content
+                    List<StreamEntry> entries = jedis.xrange(streamName, messageId, messageId, 1);
+
+                    if (entries != null && !entries.isEmpty()) {
+                        StreamEntry entry = entries.get(0);
+                        Map<String, Object> message = new HashMap<>();
+                        message.put("id", entry.getID().toString());
+                        message.put("fields", entry.getFields());
+                        message.put("deliveryCount", info.getDeliveredTimes());
+                        messages.add(message);
+                    }
+                }
+            }
+
+            log.debug("Found {} pending messages", messages.size());
+            return messages;
+
+        } catch (redis.clients.jedis.exceptions.JedisDataException e) {
+            if (e.getMessage() != null && e.getMessage().contains("NOGROUP")) {
+                log.debug("Consumer group '{}' does not exist for stream '{}', returning empty list", groupName, streamName);
+                return messages; // Return empty list if group doesn't exist (normal before first process)
+            }
+            log.error("Failed to get pending messages", e);
+            throw new RuntimeException("Failed to get pending messages", e);
+        } catch (Exception e) {
+            log.error("Failed to get pending messages", e);
+            throw new RuntimeException("Failed to get pending messages", e);
+        }
+    }
+
+    /**
+     * Get the next pending message ID (oldest pending message).
+     * Returns null if no pending messages exist.
+     *
+     * @param streamName Name of the stream
+     * @param groupName Consumer group name
+     * @return Message ID of the next pending message, or null if none
+     */
+    public String getNextPendingMessageId(String streamName, String groupName) {
+        log.debug("Getting next pending message for stream '{}', group '{}'", streamName, groupName);
+
+        try (var jedis = jedisPool.getResource()) {
+            // Get pending messages summary (oldest first, limit 1)
+            var pendingInfo = jedis.xpending(
+                streamName,
+                groupName,
+                redis.clients.jedis.params.XPendingParams.xPendingParams(
+                    StreamEntryID.MINIMUM_ID,
+                    StreamEntryID.MAXIMUM_ID,
+                    1
+                )
+            );
+
+            if (pendingInfo != null && !pendingInfo.isEmpty()) {
+                String nextMessageId = pendingInfo.get(0).getID().toString();
+                log.debug("Next pending message: {}", nextMessageId);
+                return nextMessageId;
+            }
+
+            log.debug("No pending messages found");
+            return null;
+
+        } catch (redis.clients.jedis.exceptions.JedisDataException e) {
+            if (e.getMessage() != null && e.getMessage().contains("NOGROUP")) {
+                log.debug("Consumer group '{}' does not exist for stream '{}', returning null", groupName, streamName);
+                return null; // Return null if group doesn't exist (normal before first process)
+            }
+            log.error("Failed to get next pending message", e);
+            return null;
+        } catch (Exception e) {
+            log.error("Failed to get next pending message", e);
+            return null;
+        }
+    }
+
+    /**
      * Acknowledges a message, removing it from the pending entries list.
      *
      * This should be called after successful message processing.
