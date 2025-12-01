@@ -95,9 +95,14 @@ public class DLQMessagingService {
 
     /**
      * Produces a message to the specified stream.
-     * 
+     *
      * Messages are added with auto-generated IDs and can contain multiple field-value pairs.
-     * 
+     *
+     * NOTE: This method no longer broadcasts MESSAGE_PRODUCED events directly.
+     * The RedisStreamListenerService (using XREAD BLOCK) will automatically detect
+     * new messages and broadcast them via WebSocket. This ensures that messages
+     * added externally (e.g., via Redis Insight) are also detected and displayed.
+     *
      * @param streamName Name of the stream
      * @param payload Message payload as field-value pairs
      * @return The generated message ID
@@ -105,21 +110,15 @@ public class DLQMessagingService {
      */
     public String produceMessage(String streamName, Map<String, String> payload) {
         log.debug("Producing message to stream '{}': {}", streamName, payload);
-        
+
         try (var jedis = jedisPool.getResource()) {
             // Add message with auto-generated ID (*)
             StreamEntryID messageId = jedis.xadd(streamName, XAddParams.xAddParams(), payload);
-            
-            log.debug("Message produced with ID: {}", messageId);
 
-            // Broadcast event
-            webSocketEventService.broadcastEvent(DLQEvent.builder()
-                .eventType(DLQEvent.EventType.MESSAGE_PRODUCED)
-                .messageId(messageId.toString())
-                .payload(payload)
-                .streamName(streamName)
-                .details("Message produced")
-                .build());
+            log.debug("Message produced with ID: {} (will be detected by stream listener)", messageId);
+
+            // NOTE: No WebSocket broadcast here - RedisStreamListenerService handles it
+            // This ensures consistent behavior for all messages (API + external)
 
             return messageId.toString();
 
@@ -218,21 +217,10 @@ public class DLQMessagingService {
 
                             if (entryList.size() >= 3) {
                                 String originalId = entryList.get(0).toString();
-                                String newDlqId = entryList.get(2).toString();
+                                // newDlqId is at entryList.get(2) but not needed here
+                                // RedisStreamListenerService will detect it automatically
                                 dlqIds.add(originalId);
                                 messagesSentToDLQ++;
-
-                                // Parse payload
-                                Map<String, String> payload = new HashMap<>();
-                                if (entryList.get(1) instanceof List) {
-                                    @SuppressWarnings("unchecked")
-                                    List<Object> fields = (List<Object>) entryList.get(1);
-                                    for (int i = 0; i < fields.size(); i += 2) {
-                                        if (i + 1 < fields.size()) {
-                                            payload.put(fields.get(i).toString(), fields.get(i + 1).toString());
-                                        }
-                                    }
-                                }
 
                                 // Broadcast: message deleted from main stream
                                 webSocketEventService.broadcastEvent(DLQEvent.builder()
@@ -242,14 +230,9 @@ public class DLQMessagingService {
                                     .details("Message routed to DLQ (max deliveries reached)")
                                     .build());
 
-                                // Broadcast: message added to DLQ
-                                webSocketEventService.broadcastEvent(DLQEvent.builder()
-                                    .eventType(DLQEvent.EventType.MESSAGE_PRODUCED)
-                                    .messageId(newDlqId)
-                                    .payload(payload)
-                                    .streamName(params.getDlqStreamName())
-                                    .details("Message routed from main stream (max deliveries reached)")
-                                    .build());
+                                // NOTE: No MESSAGE_PRODUCED broadcast for DLQ here
+                                // RedisStreamListenerService will automatically detect the new message
+                                // in the DLQ stream and broadcast it via WebSocket
                             }
                         }
                     }

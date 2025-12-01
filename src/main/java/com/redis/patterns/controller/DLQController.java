@@ -3,10 +3,8 @@ package com.redis.patterns.controller;
 import com.redis.patterns.dto.DLQConfigRequest;
 import com.redis.patterns.dto.DLQParameters;
 import com.redis.patterns.dto.DLQResponse;
-import com.redis.patterns.dto.TestScenarioRequest;
 import com.redis.patterns.service.DLQConfigService;
 import com.redis.patterns.service.DLQMessagingService;
-import com.redis.patterns.service.DLQTestScenarioService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,7 +35,6 @@ import java.util.Map;
 public class DLQController {
 
     private final DLQMessagingService dlqMessagingService;
-    private final DLQTestScenarioService testScenarioService;
     private final DLQConfigService dlqConfigService;
 
     /**
@@ -205,43 +202,7 @@ public class DLQController {
         }
     }
 
-    /**
-     * Runs a step-by-step test scenario.
-     *
-     * POST /api/dlq/test
-     *
-     * @param request Test scenario request
-     * @return Success response
-     */
-    @PostMapping("/test")
-    public ResponseEntity<Map<String, Object>> runTestScenario(
-            @Valid @RequestBody TestScenarioRequest request) {
-        log.info("Running test scenario: {}", request.getScenarioType());
 
-        try {
-            if (request.getScenarioType() == TestScenarioRequest.ScenarioType.STEP_BY_STEP) {
-                testScenarioService.runStepByStepScenario(request);
-            } else {
-                Map<String, Object> response = new HashMap<>();
-                response.put("success", false);
-                response.put("error", "Unsupported scenario type");
-                return ResponseEntity.badRequest().body(response);
-            }
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("message", "Test scenario started");
-            response.put("scenarioType", request.getScenarioType());
-
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            log.error("Error starting test scenario", e);
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("error", e.getMessage());
-            return ResponseEntity.internalServerError().body(response);
-        }
-    }
 
     /**
      * Cleans up streams for testing.

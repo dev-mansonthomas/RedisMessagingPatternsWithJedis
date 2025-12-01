@@ -51,6 +51,19 @@ import { DlqActionsComponent } from '../dlq-actions/dlq-actions.component';
         <!-- DLQ Pattern Explanation -->
         <div class="explanation-section">
           <h3 class="explanation-title">🔄 DLQ Pattern Logic</h3>
+
+          <!-- XADD Command Example -->
+          <div class="xadd-example">
+            <div class="xadd-line">
+              <span class="xadd-command">XADD</span>
+              <span class="xadd-stream">test-stream</span>
+              <span class="xadd-id">*</span>
+              <span class="xadd-field">type</span> <span class="xadd-value">order.created</span>
+              <span class="xadd-field">order_id</span> <span class="xadd-value">12345</span>
+              <span class="xadd-field">amount</span> <span class="xadd-value">99.99</span>
+            </div>
+          </div>
+
           <div class="pseudocode">
             <div class="code-block">
               <div class="code-line"><span class="keyword">function</span> <span class="function"> getNextMessages</span>():</div>
@@ -148,6 +161,52 @@ import { DlqActionsComponent } from '../dlq-actions/dlq-actions.component';
       display: flex;
       align-items: center;
       gap: 8px;
+    }
+
+    .xadd-example {
+      margin-bottom: 16px;
+      padding: 12px 16px;
+      background: #1e293b;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .xadd-line {
+      font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 1.8;
+      color: #e2e8f0;
+    }
+
+    .xadd-command {
+      color: #f59e0b;
+      font-weight: 700;
+      margin-right: 8px;
+    }
+
+    .xadd-stream {
+      color: #10b981;
+      font-weight: 600;
+      margin-right: 8px;
+    }
+
+    .xadd-id {
+      color: #8b5cf6;
+      font-weight: 600;
+      margin-right: 8px;
+    }
+
+    .xadd-field {
+      color: #3b82f6;
+      font-weight: 600;
+      margin-right: 4px;
+    }
+
+    .xadd-value {
+      color: #ec4899;
+      font-weight: 500;
+      margin-right: 8px;
     }
 
     .pseudocode {

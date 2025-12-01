@@ -11,6 +11,7 @@ export interface StreamMessage {
   timestamp: string;
   isFlashingError?: boolean;  // For visual feedback on failed processing (red)
   isFlashingSuccess?: boolean;  // For visual feedback on successful processing (green)
+  pendingDeletion?: boolean;  // Mark message for deletion after animation completes
 }
 
 /**
@@ -201,7 +202,7 @@ export interface StreamMessage {
     }
 
     .message-cell.flash-success {
-      animation: flashGreen 0.5s ease-in-out 4;
+      animation: flashGreen 0.5s ease-in-out 4;  /* Même vitesse que flash-error */
     }
 
     @keyframes flashGreen {
@@ -222,7 +223,7 @@ export interface StreamMessage {
     .message-cell.flash-success .message-id,
     .message-cell.flash-success .field-key,
     .message-cell.flash-success .field-value {
-      animation: textFlashGreen 0.5s ease-in-out 4;
+      animation: textFlashGreen 0.5s ease-in-out 4;  /* Même vitesse que flash-error */
     }
 
     @keyframes textFlashGreen {
@@ -436,8 +437,19 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
 
     // Handle message deletion (ACK)
     if (event.eventType === 'MESSAGE_DELETED' && event.messageId) {
-      console.log(`StreamViewer [${this.stream}]: Deleting message:`, event.messageId);
+      console.log(`StreamViewer [${this.stream}]: MESSAGE_DELETED received for:`, event.messageId);
 
+      // Check if message is currently flashing (success animation)
+      const message = this.displayedMessages.find(m => m.id === event.messageId);
+      if (message && message.isFlashingSuccess) {
+        console.log(`StreamViewer [${this.stream}]: Message is flashing, marking for deletion after animation`);
+        message.pendingDeletion = true;
+        // Don't delete now - flashMessageSuccess() will handle it after animation
+        return;
+      }
+
+      // If not flashing, delete immediately
+      console.log(`StreamViewer [${this.stream}]: Deleting message immediately:`, event.messageId);
       const initialLength = this.displayedMessages.length;
       this.displayedMessages = this.displayedMessages.filter(msg => msg.id !== event.messageId);
 
@@ -537,6 +549,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
   /**
    * Flash a message with green animation (for successful processing).
    * The animation lasts 2 seconds (4 flashes × 0.5s).
+   * After animation, deletes the message if it was marked for deletion.
    */
   private flashMessageSuccess(messageId: string): void {
     console.log(`StreamViewer [${this.stream}]: Flashing message GREEN ${messageId}`);
@@ -551,10 +564,23 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
 
       // Remove the flash class after animation completes (2 seconds)
       setTimeout(() => {
-        console.log(`StreamViewer [${this.stream}]: Removing green flash from message ${messageId}`);
+        console.log(`StreamViewer [${this.stream}]: Animation complete for message ${messageId}`);
         message.isFlashingSuccess = false;
+
+        // If message was marked for deletion, delete it now
+        if (message.pendingDeletion) {
+          console.log(`StreamViewer [${this.stream}]: Deleting message after animation: ${messageId}`);
+          const initialLength = this.displayedMessages.length;
+          this.displayedMessages = this.displayedMessages.filter(msg => msg.id !== messageId);
+
+          if (this.displayedMessages.length < initialLength) {
+            this.totalMessages--;
+            console.log(`StreamViewer [${this.stream}]: Message deleted after animation. New count: ${this.totalMessages}`);
+          }
+        }
+
         this.cdr.detectChanges();
-      }, 2000);
+      }, 2000);  // Même durée que flash-error
     } else {
       console.warn(`StreamViewer [${this.stream}]: Message ${messageId} not found for flashing`);
       console.warn(`StreamViewer [${this.stream}]: Available message IDs:`, this.displayedMessages.map(m => m.id));
