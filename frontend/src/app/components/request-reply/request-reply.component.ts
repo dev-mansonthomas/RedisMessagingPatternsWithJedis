@@ -1,110 +1,322 @@
-import { Component } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
+import { Subscription } from 'rxjs';
+import { WebSocketService } from '../../services/websocket.service';
+
+interface RequestItem {
+  itemId: string;
+  description: string;
+  quantity: number;
+}
+
+interface Request {
+  orderId: string;
+  items: RequestItem[];
+  responseType: 'OK' | 'KO' | 'ERROR' | 'TIMEOUT';
+}
+
+interface Response {
+  correlationId: string;
+  orderId?: string;
+  type: 'OK' | 'KO' | 'ERROR' | 'TIMEOUT' | null;
+  items?: Array<{itemId: string; quantity: number}>;
+  outOfStockItems?: Array<{itemId: string; quantityAsked: number; quantityAvailable: number}>;
+  errorCorrelationId?: string;
+  errorMessage?: string;
+}
 
 @Component({
   selector: 'app-request-reply',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   template: `
-    <div class="request-reply-container">
-      <div class="page-header">
-        <h1 class="page-title">Request/Reply Pattern</h1>
-        <p class="page-description">
-          Synchronous communication pattern where a client sends a request and waits for a response.
-        </p>
-      </div>
+    <div class="container">
+      <h1>Request/Reply Pattern</h1>
+      <p>Synchronous communication with timeout management using Redis Streams</p>
 
-      <div class="content-grid">
+      <div class="grid">
         <div class="card">
-          <div class="card-header">
-            <h2 class="card-title">Send Request</h2>
+          <div class="card-header request-header">
+            <h3 class="card-title">🚀 Send Request</h3>
           </div>
           <div class="card-content">
-            <p>Request/Reply component content will be implemented here.</p>
+            <p class="stream-info">Stream: <code>order.holdInventory.v1</code></p>
+
+            <div class="form-group">
+            <label>Order ID</label>
+            <input type="text" [(ngModel)]="request.orderId" placeholder="ORD-12345" />
+          </div>
+
+          <div class="form-group">
+            <label>Response Type</label>
+            <select [(ngModel)]="request.responseType" class="form-select">
+              <option value="OK">✅ OK - Success response</option>
+              <option value="KO">❌ KO - Out of stock</option>
+              <option value="ERROR">⚠️ ERROR - Processing error (no ACK, goes to DLQ)</option>
+              <option value="TIMEOUT">⏱️ TIMEOUT - No response (simulates timeout)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Items</label>
+            <table>
+              <thead>
+                <tr>
+                  <th>Item ID</th>
+                  <th>Description</th>
+                  <th>Quantity</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let item of request.items; let i = index">
+                  <td><input type="text" [(ngModel)]="item.itemId" placeholder="ITEM-001" /></td>
+                  <td><input type="text" [(ngModel)]="item.description" placeholder="Widget A" /></td>
+                  <td><input type="number" [(ngModel)]="item.quantity" placeholder="10" min="1" /></td>
+                  <td><button (click)="removeItem(i)" class="btn-remove">✕</button></td>
+                </tr>
+              </tbody>
+            </table>
+            <button (click)="addItem()" class="btn-add">+ Add Item</button>
+          </div>
+
+          <button (click)="sendRequest()" [disabled]="isSending || !request.orderId || request.items.length === 0" class="btn-send">
+            <span class="btn-icon">🚀</span>
+            {{ isSending ? 'Sending...' : 'Send Request' }}
+          </button>
+
+          <div *ngIf="response.correlationId" class="correlation-id">
+            <strong>Correlation ID:</strong> <code>{{ response.correlationId }}</code>
+          </div>
           </div>
         </div>
 
         <div class="card">
-          <div class="card-header">
-            <h2 class="card-title">Response</h2>
+          <div class="card-header response-header">
+            <div class="header-left">
+              <h3 class="card-title">📨 Response</h3>
+              <span class="connection-status" [class.connected]="isConnected()" [class.disconnected]="!isConnected()">
+                <span class="status-dot"></span>
+                {{ isConnected() ? 'WS Connected' : 'WS Disconnected' }}
+              </span>
+            </div>
           </div>
           <div class="card-content">
-            <p>Response handling will be displayed here.</p>
+            <p class="stream-info">Stream: <code>order.holdInventory.response.v1</code></p>
+
+          <div *ngIf="!response.type && response.correlationId" class="no-response">
+            Waiting for response... Time elapsed: {{ elapsedSeconds }} sec
+          </div>
+          <div *ngIf="!response.type && !response.correlationId" class="no-response">
+            Waiting for request...
+          </div>
+
+          <div *ngIf="response.type === 'OK'" class="response response-ok">
+            <div class="response-header"><span class="badge badge-ok">✓ OK</span> Inventory Hold</div>
+            <p><strong>Order ID:</strong> {{ response.orderId }}</p>
+            <p><strong>Correlation ID:</strong> <code>{{ response.correlationId }}</code></p>
+            <table>
+              <thead><tr><th>Item ID</th><th>Quantity</th></tr></thead>
+              <tbody>
+                <tr *ngFor="let item of response.items">
+                  <td>{{ item.itemId }}</td>
+                  <td>{{ item.quantity }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div *ngIf="response.type === 'KO'" class="response response-ko">
+            <div class="response-header"><span class="badge badge-ko">✗ KO</span> Out of Stock</div>
+            <p><strong>Order ID:</strong> {{ response.orderId }}</p>
+            <p><strong>Correlation ID:</strong> <code>{{ response.correlationId }}</code></p>
+            <table>
+              <thead><tr><th>Item ID</th><th>Asked</th><th>Available</th></tr></thead>
+              <tbody>
+                <tr *ngFor="let item of response.outOfStockItems">
+                  <td>{{ item.itemId }}</td>
+                  <td>{{ item.quantityAsked }}</td>
+                  <td>{{ item.quantityAvailable }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div *ngIf="response.type === 'ERROR'" class="response response-error">
+            <div class="response-header"><span class="badge badge-error">⚠ ERROR</span> Service Error</div>
+            <p><strong>Order ID:</strong> {{ response.orderId }}</p>
+            <p><strong>Correlation ID:</strong> <code>{{ response.correlationId }}</code></p>
+            <p><strong>Error ID:</strong> <code>{{ response.errorCorrelationId }}</code></p>
+            <p class="error-message">{{ response.errorMessage }}</p>
+          </div>
+
+          <div *ngIf="response.type === 'TIMEOUT'" class="response response-timeout">
+            <div class="response-header"><span class="badge badge-timeout">⏱ TIMEOUT</span> Request Timeout</div>
+            <p><strong>Order ID:</strong> {{ response.orderId }}</p>
+            <p><strong>Correlation ID:</strong> <code>{{ response.correlationId }}</code></p>
+            <p class="timeout-message">The request timed out after 10 seconds.</p>
+          </div>
+
+          <button *ngIf="response.type" (click)="clearResponse()" class="btn-secondary">Clear</button>
           </div>
         </div>
       </div>
     </div>
   `,
-  styles: [`
-    .request-reply-container {
-      max-width: 1400px;
-      margin: 0 auto;
-    }
-
-    .page-header {
-      margin-bottom: 32px;
-    }
-
-    .page-title {
-      font-size: 32px;
-      font-weight: 700;
-      color: #1e293b;
-      margin-bottom: 8px;
-    }
-
-    .page-description {
-      font-size: 16px;
-      color: #64748b;
-      margin: 0;
-    }
-
-    .content-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-      gap: 24px;
-    }
-
-    .card {
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-      border: 1px solid #e2e8f0;
-      overflow: hidden;
-      transition: box-shadow 0.2s ease;
-    }
-
-    .card:hover {
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-
-    .card-header {
-      padding: 20px 24px 16px;
-      border-bottom: 1px solid #e2e8f0;
-      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-    }
-
-    .card-title {
-      font-size: 18px;
-      font-weight: 600;
-      color: #1e293b;
-      margin: 0;
-    }
-
-    .card-content {
-      padding: 24px;
-    }
-
-    @media (max-width: 768px) {
-      .content-grid {
-        grid-template-columns: 1fr;
-        gap: 16px;
-      }
-      
-      .page-title {
-        font-size: 24px;
-      }
-    }
-  `]
+  styles: [`.container{max-width:1400px;margin:0 auto;padding:20px}.page-header{margin-bottom:24px}.page-title{font-size:32px;font-weight:700;color:#1e293b;margin:0 0 8px 0}.page-description{color:#64748b;margin:0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px}.card{display:flex;flex-direction:column;height:100%;background:#fff;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}.card-header{padding:16px;color:#fff}.request-header{background:linear-gradient(135deg,#f093fb 0%,#f5576c 100%)}.response-header{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%)}.header-left{display:flex;flex-direction:column;gap:6px}.card-title{font-size:16px;font-weight:600;margin:0}.connection-status{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:3px 8px;border-radius:10px;background:rgba(255,255,255,.15);width:fit-content}.connection-status.connected{background:rgba(34,197,94,.2)}.connection-status.disconnected{background:rgba(239,68,68,.2)}.status-dot{width:6px;height:6px;border-radius:50%;background:#fff}.connection-status.connected .status-dot{background:#22c55e;animation:pulse 2s ease-in-out infinite}.connection-status.disconnected .status-dot{background:#ef4444}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}.card-content{flex:1;padding:16px;overflow-y:auto}.stream-info{font-size:14px;color:#64748b;margin-bottom:16px}.stream-info code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:13px}.form-group{margin-bottom:16px}.form-group label{display:block;font-weight:600;margin-bottom:8px;color:#334155;font-size:14px}input[type=text],input[type=number],.form-select{width:100%;padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;transition:all .2s ease}input[type=text]:focus,input[type=number]:focus,.form-select:focus{outline:0;border-color:#667eea;box-shadow:0 0 0 3px rgba(102,126,234,.1)}.form-select{background:#fff;cursor:pointer}table{width:100%;border-collapse:collapse;margin-bottom:12px}table thead{background:#f8fafc}table th{padding:10px;text-align:left;font-size:13px;font-weight:600;color:#475569;border-bottom:2px solid #e2e8f0}table td{padding:8px}table td input{margin:0}.btn-remove{padding:6px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600;transition:all .2s ease}.btn-remove:hover:not(:disabled){background:#fecaca;transform:scale(1.1)}.btn-remove:disabled{opacity:.5;cursor:not-allowed}.btn-add{background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;transition:all .2s ease}.btn-add:hover{background:#e2e8f0;border-color:#94a3b8}.btn-send{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;border:none;padding:14px 28px;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600;width:100%;transition:all .3s ease;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 2px 8px rgba(102,126,234,.3)}.btn-send:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 6px 20px rgba(102,126,234,.5)}.btn-send:active:not(:disabled){transform:translateY(0);box-shadow:0 2px 8px rgba(102,126,234,.3)}.btn-send:disabled{opacity:.6;cursor:not-allowed;transform:none;box-shadow:none}.btn-icon{font-size:18px;display:inline-block;transition:transform .3s ease}.btn-send:hover:not(:disabled) .btn-icon{transform:translateX(3px)}.btn-secondary{background:#64748b;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:14px;margin-top:16px;width:100%;transition:all .2s ease}.btn-secondary:hover{background:#475569}.correlation-id{margin-top:16px;padding:12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;font-size:13px}.correlation-id code{background:#e0f2fe;padding:2px 6px;border-radius:4px;font-family:monospace}.no-response{display:flex;align-items:center;justify-content:center;padding:40px 20px;color:#94a3b8;font-size:14px;font-style:italic}.response{padding:16px;border-radius:8px;margin-bottom:16px;animation:fadeIn .3s ease-in}@keyframes fadeIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}.response-ok{background:#f0fdf4;border:1px solid #bbf7d0}.response-ko{background:#fef2f2;border:1px solid #fecaca}.response-error{background:#fef2f2;border:1px solid #fecaca}.response-timeout{background:#fefce8;border:1px solid #fde047}.response-header{font-size:16px;font-weight:600;margin-bottom:12px}.response p{margin:8px 0;font-size:14px;color:#334155}.response strong{color:#1e293b}.response code{background:rgba(0,0,0,.05);padding:2px 6px;border-radius:4px;font-family:monospace;font-size:12px}.badge{display:inline-block;padding:4px 8px;border-radius:4px;font-size:12px;font-weight:600;margin-right:8px}.badge-ok{background:#22c55e;color:#fff}.badge-ko{background:#ef4444;color:#fff}.badge-error{background:#f97316;color:#fff}.badge-timeout{background:#eab308;color:#fff}.error-message,.timeout-message{color:#64748b;font-style:italic;margin-top:8px}@media (max-width:768px){.grid{grid-template-columns:1fr}table{font-size:12px}table th,table td{padding:6px}}`]
 })
-export class RequestReplyComponent {}
+export class RequestReplyComponent implements OnInit, OnDestroy {
+  private http = inject(HttpClient);
+  private wsService = inject(WebSocketService);
+  private cdr = inject(ChangeDetectorRef);
+  private wsSubscription?: Subscription;
 
+  isSending = false;
+  isConnected = signal(false);
+
+  request: Request = {
+    orderId: 'ORD-9393',
+    items: [
+      { itemId: 'ITEM-001', description: 'Widget A', quantity: 10 },
+      { itemId: 'ITEM-002', description: 'Widget B', quantity: 5 }
+    ],
+    responseType: 'OK'
+  };
+
+  response: Response = {
+    correlationId: '',
+    type: null
+  };
+
+  // Timer for tracking request duration
+  elapsedSeconds = 0;
+  private timerInterval?: any;
+
+  ngOnInit(): void {
+    // Connect to WebSocket for real-time response delivery
+    this.wsService.connect();
+
+    // Monitor WebSocket connection status
+    this.isConnected.set(this.wsService.isConnected());
+
+    // Subscribe to connection status changes
+    this.wsService.getConnectionStatus().subscribe((connected: boolean) => {
+      console.log('RequestReply: WebSocket connection status changed:', connected);
+      this.isConnected.set(connected);
+      this.cdr.detectChanges();
+    });
+
+    this.wsSubscription = this.wsService.getEvents().subscribe((event: any) => {
+      console.log('RequestReply: Received WebSocket event:', event);
+
+      // Update connection status
+      this.isConnected.set(true);
+
+      if (event.details && event.details.startsWith('REQUEST_REPLY_RESPONSE:')) {
+        try {
+          const jsonStr = event.details.substring('REQUEST_REPLY_RESPONSE:'.length);
+          const responseData = JSON.parse(jsonStr);
+          this.handleResponse(responseData);
+        } catch (e) {
+          console.error('Error parsing Request/Reply response:', e);
+        }
+      }
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.wsSubscription?.unsubscribe();
+    this.stopTimer();
+  }
+
+  private startTimer(): void {
+    this.elapsedSeconds = 0;
+    this.stopTimer(); // Clear any existing timer
+    this.timerInterval = setInterval(() => {
+      this.elapsedSeconds++;
+      this.cdr.detectChanges();
+    }, 1000);
+  }
+
+  private stopTimer(): void {
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = undefined;
+    }
+  }
+
+  addItem(): void {
+    this.request.items.push({ itemId: '', description: '', quantity: 1 });
+  }
+
+  removeItem(index: number): void {
+    this.request.items.splice(index, 1);
+  }
+
+  sendRequest(): void {
+    this.isSending = true;
+    this.response = { correlationId: '', type: null };
+    this.startTimer(); // Start the timer
+
+    const payload = {
+      orderId: this.request.orderId,
+      items: this.request.items,
+      responseType: this.request.responseType
+    };
+
+    this.http.post<{success: boolean; correlationId: string}>('http://localhost:8080/api/request-reply/send', payload)
+      .subscribe({
+        next: (result) => {
+          console.log('Request sent, correlation ID:', result.correlationId);
+          this.response.correlationId = result.correlationId;
+          this.isSending = false;
+          this.cdr.detectChanges();
+        },
+        error: (error) => {
+          console.error('Error sending request:', error);
+          this.isSending = false;
+          this.stopTimer(); // Stop timer on error
+          alert('Error sending request: ' + error.message);
+        }
+      });
+  }
+
+  clearResponse(): void {
+    this.response = { correlationId: '', type: null };
+    this.cdr.detectChanges();
+  }
+
+  private handleResponse(responseData: any): void {
+    console.log('Handling response:', responseData);
+
+    if (responseData.correlationId !== this.response.correlationId) {
+      console.log('Ignoring response for different correlation ID');
+      return;
+    }
+
+    // Stop the timer when response is received
+    this.stopTimer();
+
+    this.response.type = responseData.responseType;
+    this.response.orderId = responseData.orderId;
+
+    switch (responseData.responseType) {
+      case 'OK':
+        this.response.items = responseData.items;
+        break;
+      case 'KO':
+        this.response.outOfStockItems = responseData.outOfStockItems;
+        break;
+      case 'ERROR':
+        this.response.errorCorrelationId = responseData.errorCorrelationId;
+        this.response.errorMessage = responseData.errorMessage;
+        break;
+      case 'TIMEOUT':
+        break;
+    }
+
+    this.cdr.detectChanges();
+  }
+}
