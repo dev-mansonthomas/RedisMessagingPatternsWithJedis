@@ -2,16 +2,17 @@
 
 # 🚀 Redis Messaging Patterns
 
-**Enterprise-grade messaging patterns using Redis Streams and Redis Functions**
+**Learn enterprise messaging patterns using Redis Streams, Redis Functions, and Java 21 Virtual Threads**
 
-[![Redis](https://img.shields.io/badge/Redis-8.4-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
 [![License](https://img.shields.io/badge/License-LGPL%202.1-blue?style=for-the-badge)](./LICENSE)
 [![Java](https://img.shields.io/badge/Java-21-007396?style=for-the-badge&logo=openjdk&logoColor=white)](https://openjdk.org/)
+[![Redis](https://img.shields.io/badge/Redis-8.4-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
+[![Jedis](https://img.shields.io/badge/Jedis-7.1.0-DC382D?style=for-the-badge)](https://github.com/redis/jedis)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.7-6DB33F?style=for-the-badge&logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Angular](https://img.shields.io/badge/Angular-21-DD0031?style=for-the-badge&logo=angular&logoColor=white)](https://angular.io)
-[![Jedis](https://img.shields.io/badge/Jedis-7.1.0-DC382D?style=for-the-badge)](https://github.com/redis/jedis)
 
-[Features](#-features) • [Installation](#-installation) • [Usage](#-testing-the-dlq-pattern) • [Documentation](#-function-reference) • [Contributing](#-contributing)
+
+[Patterns](#-implemented-patterns) • [Getting Started](#-getting-started) • [Key Files](#-key-files-to-explore) • [Architecture](#-architecture)
 
 </div>
 
@@ -19,402 +20,374 @@
 
 ## 📋 Table of Contents
 
-- [Overview](#-overview)
-- [Features](#-features)
-- [What is a Dead Letter Queue?](#-what-is-a-dead-letter-queue-dlq)
+- [What is This Project?](#-what-is-this-project)
+- [Key Concepts](#-key-concepts-for-beginners)
+- [Implemented Patterns](#-implemented-patterns)
 - [Technology Stack](#-technology-stack)
 - [Prerequisites](#-prerequisites)
-- [Installation](#-installation)
-- [Testing](#-testing-the-dlq-pattern)
-- [Function Reference](#-function-reference)
-- [Project Structure](#-project-structure)
-- [Roadmap](#-roadmap)
+- [Getting Started](#-getting-started)
+- [Key Files to Explore](#-key-files-to-explore)
+- [Architecture](#-architecture)
 - [Contributing](#-contributing)
 - [License](#-license)
 
 ---
 
-## 🎯 Overview
+## 🎯 What is This Project?
 
-This project demonstrates various messaging patterns using Redis Streams and Redis Functions. The first pattern implemented is the **Dead Letter Queue (DLQ)** pattern, providing a robust solution for handling message processing failures in distributed systems.
+This project is a **learning resource** that demonstrates enterprise messaging patterns using Redis. It provides:
 
-## ✨ Features
+- **Working implementations** of messaging patterns 
+    - DLQ
+    - Pub/Sub
+    - Request/Reply
+- **Interactive web UI** to visualize and test each pattern in real-time
+- **Demonstration code** with Redis Functions (Lua), Jedis, and Java 21 Virtual Threads
 
-- ✅ **Dead Letter Queue (DLQ)** pattern implementation
-- ✅ Automatic message routing based on delivery thresholds
-- ✅ Built with Redis Functions for atomic operations
-- ✅ **Real-time monitoring** with WebSocket streaming
-- ✅ **Interactive web UI** with Angular 21
-- ✅ **Background stream monitoring** for live updates
-- ✅ Comprehensive test suite with interactive demos
-- ✅ Production-ready error handling
-- 🔜 Additional messaging patterns coming soon
+Whether you're new to messaging systems or Redis, this project helps you understand how to build reliable, scalable message-driven applications.
 
 ---
 
-## 💡 What is a Dead Letter Queue (DLQ)?
+## 📚 Key Concepts for Beginners
 
-A Dead Letter Queue is a messaging pattern used to handle messages that cannot be processed successfully after multiple attempts. Instead of losing these problematic messages or blocking the processing pipeline, they are automatically moved to a separate queue (the "dead letter queue") for later inspection, debugging, or manual intervention.
+### What is Messaging?
 
-### Why Use a DLQ?
+**Messaging** is a way for different parts of an application (or different applications) to communicate by sending and receiving messages through a message broker (like Redis).
 
-- **Fault Tolerance**: Prevents message loss when processing fails repeatedly
-- **System Resilience**: Keeps the main processing pipeline flowing by isolating problematic messages
-- **Debugging**: Provides a dedicated place to inspect and analyze failed messages
-- **Monitoring**: Enables tracking of failure patterns and system health
+```
+┌──────────────┐     ┌────────────────┐     ┌──────────────┐
+│   Producer   │ ──▶ │ Message Broker │ ──▶ │   Consumer   │
+│ (sends msgs) │     │   (Redis)      │     │ (reads msgs) │
+└──────────────┘     └────────────────┘     └──────────────┘
+```
 
-### How It Works in This Project
+### What is Redis Streams?
 
-1. **Message Processing**: Messages are consumed from a Redis Stream using consumer groups
-2. **Delivery Tracking**: Redis automatically tracks how many times each message has been delivered
-3. **Threshold Check**: The `claim_or_dlq` function monitors pending messages and their delivery counts
-4. **Automatic Routing**: 
-   - Messages below the delivery threshold are reclaimed for reprocessing
-   - Messages at or above the threshold are copied to the DLQ stream and acknowledged in the main stream
+**Redis Streams** is a data structure in Redis designed for **guaranteed messaging**. Think of it as an append-only log where:
+- **Producers** add messages to the end of the stream
+- **Consumers** poll the stream to read messages (pull model)
+- **Consumer Groups** allow multiple consumers to share the workload
+- **Messages are persisted** until explicitly deleted
+- **Acknowledgment** ensures no message is lost
+
+### What is Redis Pub/Sub?
+
+**Redis Pub/Sub** is a **real-time push messaging** system where:
+- **Publishers** send messages to channels
+- **Subscribers** receive messages instantly via an **always-active connection**
+- Messages are **not persisted** - if no subscriber is connected, the message is lost
+- **No polling needed** - Redis pushes messages to subscribers automatically
+
+**Streams vs Pub/Sub**:
+| Feature | Redis Streams | Redis Pub/Sub |
+|---------|--------------|---------------|
+| Delivery model | Pull (polling) | Push (real-time) |
+| Persistence | Yes | No |
+| Guaranteed delivery | Yes | No |
+| Connection | On-demand | Always active |
+| Use case | Reliable queuing | Real-time notifications |
+
+### What are Redis Functions?
+
+**Redis Functions** allow you to run Lua scripts directly inside Redis. This ensures:
+- **Atomicity**: Multiple operations execute as one
+- **Performance**: No network round-trips for complex logic
+- **Consistency**: Operations can't be interrupted
+
+---
+
+## ✨ Implemented Patterns
+
+### 1. 📬 Dead Letter Queue (DLQ)
+
+**What it solves**: When message processing fails repeatedly, messages are automatically moved to a separate queue instead of being lost.
+
+**Use case**: E-commerce order processing where some orders fail validation.
+
+**Key concepts**:
+- Consumer Groups track message delivery count
+- After N failed attempts, messages go to DLQ
+- Failed messages can be inspected and reprocessed later
+
+### 2. 📢 Publish/Subscribe (Pub/Sub)
+
+**What it solves**: Send a message to multiple recipients simultaneously without knowing who they are.
+
+**Use case**: Real-time notifications, chat systems, live updates.
+
+**Key concepts**:
+- Fire-and-forget: No delivery guarantee
+- Fan-out: One message reaches all subscribers
+- Ephemeral: Messages are not persisted
+
+### 3. ↔️ Request/Reply
+
+**What it solves**: Send a request and wait for a response, with automatic timeout handling. Multiple workers can process requests in parallel without duplicate processing.
+
+**Use case**: Inventory check before order confirmation, distributed task processing.
+
+**Key concepts**:
+- Correlation ID links request to response
+- Consumer Groups ensure each request is processed by exactly one worker
+- Multiple workers can share the load (horizontal scaling)
+- Timeout keys trigger automatic timeout responses
+- Keyspace notifications detect key expiration
+
+---
 
 ## 🛠 Technology Stack
 
-| Technology | Purpose |
-|------------|---------|
-| **Redis 8.4** | In-memory data store with Streams and Functions |
-| **Redis Streams** | Message queue and event streaming |
-| **Redis Functions** | Server-side Lua scripting for atomic operations |
-| **Java 21** | Backend application with Spring Boot |
-| **Jedis 7.1.0** | Redis Java client library |
-| **Spring Boot 3.5.7** | Enterprise Java framework |
-| **Angular 21** | Modern frontend framework |
-| **WebSocket** | Real-time bidirectional communication |
-| **Bash** | Automation and testing scripts |
+| Technology | Purpose | Why We Use It |
+|------------|---------|---------------|
+| **Redis 8.4** | Message broker | In-memory speed, Streams support, Functions |
+| **Redis Streams** | Message queuing | Persistence, consumer groups, delivery tracking |
+| **Redis Functions** | Atomic operations | Run Lua scripts server-side for consistency |
+| **Redis Pub/Sub** | Broadcast messaging | Real-time fan-out to multiple subscribers |
+| **Jedis 7.1.0** | Redis client | Java library to interact with Redis |
+| **Java 21** | Backend runtime | Virtual Threads for efficient I/O |
+| **Spring Boot 3.5.7** | Web framework | REST API, WebSocket, dependency injection |
+| **Angular 21** | Frontend | Real-time UI with WebSocket |
+| **WebSocket** | Real-time comms | Push updates from server to browser |
 
 ---
 
 ## 📦 Prerequisites
 
-- **Docker** and **Docker Compose** (recommended)
-- **Bash** shell for running scripts
-- **redis-cli** (included in Docker container)
+Before starting, you need:
 
-> **Note**: This project has been tested with **Redis 8.4**. Redis Functions require Redis 7.0+ and Redis Streams require Redis 5.0+.
+| Tool | Version | Purpose |
+|------|---------|---------|
+| **Docker** | Latest | Run Redis container |
+| **Java** | 21+ | Run Spring Boot backend |
+| **Maven** | 3.8+ | Build Java project |
+| **Node.js** | 18+ | Run Angular frontend |
+| **npm** | 9+ | Install frontend dependencies |
 
 ---
 
-## 🚀 Installation
+## 🚀 Getting Started
 
-### Step 1: Start Redis with Docker
-
-The easiest way to get started is using Docker:
+### Step 1: Start Redis
 
 ```bash
-# Start Redis 8.4 in a Docker container
-docker run -d \
-  --name redis-messaging \
-  -p 6379:6379 \
-  redis:8.4-alpine
+# Start Redis 8.4 with Docker
+docker run -d --name redis-messaging -p 6379:6379 redis:8.4-alpine
 
-# Verify Redis is running
+# Verify it's running
 docker exec redis-messaging redis-cli PING
-# Expected output: PONG
+# Expected: PONG
 ```
 
-**Alternative: Using Docker Compose**
-
-Create a `docker-compose.yml` file (if not already present):
-
-```yaml
-version: '3.8'
-services:
-  redis:
-    image: redis:8.4-alpine
-    container_name: redis-messaging
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
-
-volumes:
-  redis-data:
-```
-
-Then start Redis:
+### Step 2: Start the Backend
 
 ```bash
-docker-compose up -d
+# Build and run
+mvn clean package -DskipTests
+java -jar target/redis-messaging-patterns-1.0.0.jar
+
+# Or with Maven directly
+mvn spring-boot:run
 ```
 
-### Step 2: Configure Redis Connection
+Backend runs on **http://localhost:8080**
 
-Create or edit the `.env` file in the project root:
+> **Note**: Lua functions are automatically loaded into Redis on Spring Boot startup via [`RedisLuaFunctionLoader.java`](src/main/java/com/redis/patterns/service/RedisLuaFunctionLoader.java). No manual loading required.
+
+### Step 3: Start the Frontend
 
 ```bash
-REDIS_HOST=127.0.0.1
-REDIS_PORT=6379
+cd frontend
+npm install
+npm start
 ```
 
-For remote or secured Redis instances, you can also set:
-- `REDIS_USER`: Redis username (optional)
-- `REDIS_PASS`: Redis password (optional)
-- `REDIS_TLS`: Set to `1` to enable TLS (optional)
+Frontend runs on **http://localhost:4200**
 
-### Step 3: Load the Redis Function
+---
 
-Navigate to the `lua` directory and run the load script:
+## 📂 Key Files to Explore
 
-```bash
-cd lua
-./load.sh
+This section highlights the most important files for understanding each pattern.
+
+### 🔧 Lua Functions (Server-Side Logic)
+
+| File | Description |
+|------|-------------|
+| **[`lua/stream_utils.lua`](lua/stream_utils.lua)** | **All Redis Functions in one file**: `read_claim_or_dlq`, `request`, `response` |
+
+**What to look for**:
+- `read_claim_or_dlq` (line 59): Uses Redis 8.4's `XREADGROUP CLAIM` for atomic claim+read
+- `request` (line 188): Creates timeout tracking keys with `SET EX` and posts to stream
+- `response` (line 279): Deletes timeout key and posts response
+
+### ☕ Java Services (Backend Logic)
+
+#### DLQ Pattern
+
+| File | Key Concepts |
+|------|--------------|
+| **[`DLQMessagingService.java`](src/main/java/com/redis/patterns/service/DLQMessagingService.java)** | Jedis `fcall()` to invoke Lua functions, `XADD`, `XREADGROUP`, `XACK` |
+| **[`RedisStreamListenerService.java`](src/main/java/com/redis/patterns/service/RedisStreamListenerService.java)** | **Virtual Threads** + `XREAD BLOCK` for real-time stream monitoring |
+
+#### Pub/Sub Pattern
+
+| File | Key Concepts |
+|------|--------------|
+| **[`PubSubService.java`](src/main/java/com/redis/patterns/service/PubSubService.java)** | Jedis `publish()` for fire-and-forget messaging |
+| **[`RedisPubSubListener.java`](src/main/java/com/redis/patterns/config/RedisPubSubListener.java)** | Jedis `JedisPubSub` for subscribing to channels |
+
+#### Request/Reply Pattern
+
+| File | Key Concepts |
+|------|--------------|
+| **[`RequestReplyService.java`](src/main/java/com/redis/patterns/service/RequestReplyService.java)** | Full pattern: request, response, timeout handling with Virtual Threads |
+| **[`KeyspaceNotificationConfig.java`](src/main/java/com/redis/patterns/config/KeyspaceNotificationConfig.java)** | Redis keyspace notifications for timeout detection |
+
+### 🌐 WebSocket (Real-Time Communication)
+
+| File | Description |
+|------|-------------|
+| **[`WebSocketEventService.java`](src/main/java/com/redis/patterns/service/WebSocketEventService.java)** | Broadcasts events to all connected Angular clients |
+| **[`websocket.service.ts`](frontend/src/app/services/websocket.service.ts)** | SockJS client with automatic reconnection |
+
+---
+
+## 🏗️ Architecture
+
+### How Virtual Threads Monitor Streams
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     Spring Boot Application                         │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌──────────────────────┐    ┌──────────────────────┐               │
+│  │  Virtual Thread #1   │    │  Virtual Thread #2   │               │
+│  │  (stream-listener-   │    │  (request-listener)  │               │
+│  │   test-stream)       │    │                      │               │
+│  └──────────┬───────────┘    └──────────┬───────────┘               │
+│             │                            │                          │
+│             │ XREAD BLOCK 1000           │ XREADGROUP BLOCK 5000    │
+│             │                            │                          │
+│             ▼                            ▼                          │
+│  ┌──────────────────────────────────────────────────────┐           │
+│  │                 JedisPool (Connection Pool)          │           │
+│  └────────────────────────-──┬──────────────────────────┘           │
+│                              │                                      │
+└──────────────────────────────┼──────────────────────────────────────┘
+                               │
+                               ▼
+                    ┌────────────────────-─┐
+                    │        Redis         │
+                    │   (Streams, Pub/Sub) │
+                    └────────────────────-─┘
 ```
 
-This script will:
-1. Load the `claim_or_dlq` function into Redis
-2. Display the list of loaded functions to confirm installation
+**Why Virtual Threads?**
+- Lightweight: Millions of threads possible
+- Blocking I/O is efficient (no thread pool exhaustion)
+- Perfect for `XREAD BLOCK` and `XREADGROUP BLOCK`
 
-Expected output:
+### WebSocket Event Flow
+
 ```
-OK
-1) 1) "library_name"
-   2) "stream_utils"
-   3) "engine"
-   4) "LUA"
-   ...
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Redis Stream   │     │  Spring Boot    │     │  Angular App    │
+│                 │     │                 │     │                 │
+│  test-stream    │────▶│ XREAD BLOCK     │────▶│ WebSocket       │
+│  test-stream:dlq│     │                 │     │ Service         │
+└─────────────────┘     │ ──────────────  │     │ ─────────────   │
+                        │ WebSocket       │     │ Updates UI      │
+                        │ EventService    │     │                 │
+                        └─────────────────┘     └─────────────────┘
 ```
 
 ---
 
-## 🧪 Testing the DLQ Pattern
+## 📚 Redis Functions Reference
 
-Run the interactive test script to see the DLQ pattern in action:
+### `read_claim_or_dlq` (DLQ Pattern)
+
+Claims pending messages and routes failed ones to DLQ.
 
 ```bash
-cd lua
-./test_dlq.sh
+FCALL read_claim_or_dlq 2 <stream> <dlq> <group> <consumer> <minIdle> <count> <maxDeliver>
 ```
 
-### What the Test Script Demonstrates
-
-The script runs two scenarios:
-
-#### Scenario 1: Nominal Path (No DLQ)
-1. A message is added to the stream
-2. Consumer `c1` reads it without acknowledging (deliveries = 1)
-3. Consumer `c2` reclaims the message using `claim_or_dlq` (deliveries < threshold)
-4. The message is processed and acknowledged
-5. **Result**: Message stays in the main stream, DLQ remains empty
-
-#### Scenario 2: DLQ Path (Threshold Exceeded)
-1. A new message is added to the stream
-2. Consumer `c1` reads it without acknowledging (deliveries = 1)
-3. Consumer `c2` reclaims it (deliveries = 2, at threshold)
-4. Consumer `c3` calls `claim_or_dlq` again (deliveries >= maxDeliveries)
-5. **Result**: Message is copied to the DLQ stream and acknowledged in the main stream
-
-The script is interactive and will pause before each command, allowing you to see exactly what's happening at each step.
-
----
-
-## 🏗️ Real-Time Monitoring Architecture
-
-The application provides real-time monitoring of Redis Streams through a WebSocket-based architecture:
-
-```
-Redis Stream (test-stream, test-stream:dlq)
-    ↓
-User Actions (Process & Success/Fail buttons)
-    ↓ XREADGROUP (consumer group: test-group)
-Process messages
-    ↓
-WebSocketEventService.broadcastEvent()
-    ↓ WebSocket (SockJS)
-All connected clients
-    ↓
-StreamViewerComponent (Angular)
-    ↓
-Real-time display in UI
-```
-
-**Architecture Note:** Visualization uses `XREVRANGE` (read-only, no consumer group) to avoid creating unnecessary PENDING entries. Only user actions (Process buttons) use `XREADGROUP` with the `test-group` consumer. See `ARCHITECTURE_VISUALIZATION.md` for details.
-
-### Key Components
-
-#### Backend (Spring Boot)
-
-| Component | Purpose | Location |
-|-----------|---------|----------|
-| **DLQMessagingService** | Core service for Redis Stream operations (XADD, XREADGROUP, XACK, XREVRANGE) | `src/main/java/com/redis/patterns/service/DLQMessagingService.java` |
-| **WebSocketEventService** | Manages WebSocket sessions and broadcasts events to all connected clients | `src/main/java/com/redis/patterns/service/WebSocketEventService.java` |
-| **DLQEventWebSocketHandler** | Handles WebSocket connection lifecycle (connect, disconnect, errors) | `src/main/java/com/redis/patterns/websocket/DLQEventWebSocketHandler.java` |
-| **DLQController** | REST API endpoints for message retrieval and DLQ operations | `src/main/java/com/redis/patterns/controller/DLQController.java` |
-| **StreamMonitorService** | ~~Background polling service~~ (DISABLED - visualization uses XREVRANGE instead) | `src/main/java/com/redis/patterns/service/StreamMonitorService.java` |
-
-#### Frontend (Angular 21)
-
-| Component | Purpose | Location |
-|-----------|---------|----------|
-| **StreamViewerComponent** | Reusable component that displays stream messages with real-time updates | `frontend/src/app/components/stream-viewer/` |
-| **WebSocketService** | Manages WebSocket connection using SockJS with automatic reconnection | `frontend/src/app/services/websocket.service.ts` |
-| **RedisApiService** | HTTP client for REST API calls (initial data loading) | `frontend/src/app/services/redis-api.service.ts` |
-| **DLQComponent** | Main page displaying two stream viewers (main + DLQ) | `frontend/src/app/components/dlq/` |
-
-### How It Works
-
-1. **Initial Load**: When the page loads, `StreamViewerComponent` fetches existing messages via REST API (`GET /api/dlq/messages`)
-   - Backend uses `XREVRANGE` (read-only, no consumer group)
-   - No PENDING entries created
-
-2. **WebSocket Connection**: Component connects to WebSocket endpoint (`/api/ws/dlq-events`) using SockJS
-
-3. **User Actions**: When user clicks "Process & Success" or "Process & Fail":
-   - Backend uses `XREADGROUP` with `test-group` consumer
-   - Creates PENDING entries for tracking
-   - Broadcasts events (`MESSAGE_DELETED`, `MESSAGE_PRODUCED`) via WebSocket
-
-4. **Real-Time Display**: Angular components receive events and update the UI instantly
-   - `MESSAGE_PRODUCED`: Add message to display
-   - `MESSAGE_DELETED`: Remove message from display
-
-### Testing Real-Time Updates
-
-**Option 1: Use the UI**
-- Click "Produce Message" button in the DLQ Config panel
-- Click "Process & Success" to acknowledge and remove
-- Click "Process & Fail" 3 times to route to DLQ
-
-**Option 2: Use Redis CLI**
+**Example**:
 ```bash
-# Add a message directly
-redis-cli XADD test-stream * type order.shipped order_id 9999 tracking "TEST123"
-
-# Then use the UI buttons to process it
+redis-cli FCALL read_claim_or_dlq 2 orders orders:dlq order-group worker1 5000 100 3
 ```
 
----
+### `request` (Request/Reply Pattern)
 
-## 📚 Function Reference
+Sends a request with automatic timeout tracking.
 
-### `claim_or_dlq`
-
-Claims pending messages from a Redis Stream and routes them based on delivery count.
-
-**Syntax:**
 ```bash
-FCALL claim_or_dlq 2 <stream> <dlq_stream> <group> <consumer> <minIdle> <count> <maxDeliveries>
+FCALL request 3 <timeout_key> <shadow_key> <stream> <correlationId> <businessId> <responseStream> <timeout> <payloadJson>
 ```
 
-**Parameters:**
-- `stream`: Source stream name
-- `dlq_stream`: Dead letter queue stream name
-- `group`: Consumer group name
-- `consumer`: Consumer name claiming the messages
-- `minIdle`: Minimum idle time in milliseconds before a message can be claimed
-- `count`: Maximum number of pending messages to process
-- `maxDeliveries`: Delivery threshold (messages at or above this count go to DLQ)
+### `response` (Request/Reply Pattern)
 
-**Returns:**
-Array of messages reclaimed for processing (excludes messages sent to DLQ)
+Sends a response and cancels the timeout.
 
-**Example:**
 ```bash
-redis-cli FCALL claim_or_dlq 2 mystream mystream:dlq mygroup worker1 5000 100 3
+FCALL response 2 <timeout_key> <stream> <correlationId> <businessId> <payloadJson>
 ```
-
-This claims up to 100 messages idle for at least 5 seconds, sending those with 3+ deliveries to the DLQ.
 
 ---
 
 ## 📁 Project Structure
 
 ```
-.
+RedisMessagingPatternsWithJedis/
 ├── lua/
-│   ├── stream_utils.claim_or_dlq.lua       # Redis Function implementation
-│   ├── load.sh                              # Script to load the function into Redis
-│   └── test_dlq.sh                          # Interactive test script
+│   └── stream_utils.lua              # All Lua functions (DLQ + Request/Reply)
+│
 ├── src/main/java/com/redis/patterns/
-│   ├── controller/
-│   │   └── DLQController.java               # REST API endpoints
 │   ├── service/
-│   │   ├── DLQMessagingService.java         # Core Redis Stream operations
-│   │   ├── StreamMonitorService.java        # (DISABLED) Background monitoring
-│   │   ├── WebSocketEventService.java       # WebSocket event broadcasting
-│   │   └── DLQTestScenarioService.java      # Test scenario execution
-│   ├── websocket/
-│   │   └── DLQEventWebSocketHandler.java    # WebSocket connection handler
-│   ├── dto/
-│   │   └── DLQEvent.java                    # Event data transfer object
-│   └── config/
-│       ├── WebSocketConfig.java             # WebSocket configuration
-│       └── RedisConfig.java                 # Redis connection pool
+│   │   ├── DLQMessagingService.java       # DLQ operations with Jedis
+│   │   ├── PubSubService.java             # Pub/Sub publish
+│   │   ├── RequestReplyService.java       # Request/Reply with Virtual Threads
+│   │   ├── RedisStreamListenerService.java # XREAD BLOCK with Virtual Threads
+│   │   └── WebSocketEventService.java     # Broadcast to Angular
+│   ├── config/
+│   │   ├── RedisConfig.java               # JedisPool configuration
+│   │   ├── RedisPubSubConfig.java         # Pub/Sub subscriber setup
+│   │   └── KeyspaceNotificationConfig.java # Timeout detection
+│   └── controller/
+│       ├── DLQController.java             # REST API for DLQ
+│       ├── PubSubController.java          # REST API for Pub/Sub
+│       └── RequestReplyController.java    # REST API for Request/Reply
+│
 ├── frontend/src/app/
 │   ├── components/
-│   │   ├── stream-viewer/                   # Reusable stream viewer component
-│   │   └── dlq/                             # DLQ page with dual stream viewers
+│   │   ├── dlq/                           # DLQ demo page
+│   │   ├── pubsub/                        # Pub/Sub demo page
+│   │   ├── request-reply/                 # Request/Reply demo page
+│   │   └── stream-viewer/                 # Reusable stream viewer
 │   └── services/
-│       ├── websocket.service.ts             # WebSocket client (SockJS)
-│       └── redis-api.service.ts             # HTTP client for REST API
-├── .env                                     # Redis connection configuration
-└── LICENSE                                  # LGPL 2.1 License
+│       ├── websocket.service.ts           # WebSocket client
+│       └── redis-api.service.ts           # HTTP client
+│
+└── README.md                              # You are here!
 ```
-
----
-
-## 🗺 Roadmap
-
-This project will be expanded to include additional messaging patterns:
-
-- [ ] **Retry with Exponential Backoff** - Intelligent retry mechanisms
-- [ ] **Message Prioritization** - Priority-based message processing
-- [ ] **Batch Processing** - Efficient bulk message handling
-- [ ] **Message Deduplication** - Prevent duplicate message processing
-- [ ] **Circuit Breaker** - Fault tolerance pattern
-- [ ] **Saga Pattern** - Distributed transaction management
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Here's how you can help:
+Contributions are welcome! Please:
 
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-pattern`)
-3. **Commit** your changes (`git commit -m 'Add amazing messaging pattern'`)
-4. **Push** to the branch (`git push origin feature/amazing-pattern`)
-5. **Open** a Pull Request
-
-### Guidelines
-
-- Follow existing code style and conventions
-- Add tests for new messaging patterns
-- Update documentation as needed
-- Ensure all tests pass before submitting
-
----
-
-## 👥 Contributors
-
-<a href="https://github.com/yourusername/RedisDLQJedis/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=yourusername/RedisDLQJedis" />
-</a>
+1. Fork the repository
+2. Create a feature branch
+3. Submit a Pull Request
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **GNU Lesser General Public License v2.1** - see the [LICENSE](./LICENSE) file for details.
-
-### What this means:
-
-- ✅ You can use this library in commercial applications
-- ✅ You can modify and distribute the code
-- ✅ You must disclose source code changes
-- ✅ You must include the original license
-
----
-
-## 🙏 Acknowledgments
-
-- Built with [Redis](https://redis.io) - The world's fastest in-memory database
-- Inspired by enterprise messaging patterns and best practices
-- Thanks to the Redis community for excellent documentation
+**GNU Lesser General Public License v2.1** - See [LICENSE](./LICENSE)
 
 ---
 

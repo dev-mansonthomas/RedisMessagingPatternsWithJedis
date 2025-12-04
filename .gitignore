@@ -25,6 +25,7 @@ bin/
 ### angular
 frontend/node_modules/
 frontend/dist/
+frontend/.angular
 
 ### Spring
 target/
