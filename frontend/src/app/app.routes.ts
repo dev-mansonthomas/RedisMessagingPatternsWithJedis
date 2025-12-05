@@ -23,6 +23,10 @@ export const routes: Routes = [
     loadComponent: () => import('./components/work-queue/work-queue.component').then(m => m.WorkQueueComponent)
   },
   {
+    path: 'fan-out',
+    loadComponent: () => import('./components/fan-out/fan-out.component').then(m => m.FanOutComponent)
+  },
+  {
     path: '**',
     redirectTo: '/dlq'
   }
