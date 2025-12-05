@@ -87,6 +87,34 @@ jedis.xread(
 - `sendResponse(...)` → Calls Lua `response`
 - Uses `KeyspaceNotificationConfig` for timeout detection
 
+### WorkQueueService
+**File**: `src/main/java/com/redis/patterns/service/WorkQueueService.java`
+
+**Key Implementation**:
+```java
+// 4 Virtual Thread workers started on application startup (CommandLineRunner)
+for (int i = 1; i <= NUM_WORKERS; i++) {
+    Thread.ofVirtual()
+        .name("work-queue-worker-" + i)
+        .start(() -> workerLoop(workerId, running));
+}
+
+// Worker loop polls every 100ms using read_claim_or_dlq
+jedis.fcall("read_claim_or_dlq",
+    Arrays.asList(JOB_STREAM, JOB_DLQ),
+    Arrays.asList(JOB_GROUP, consumerName, "100", "1", "2"));
+```
+
+**Streams**:
+- Input: `jobs.imageProcessing.v1`
+- Done: `jobs.done.worker-{1-4}` (one per worker)
+- DLQ: `jobs.imageProcessing.v1:dlq`
+
+**Key Methods**:
+- `produceJob(jobId, processingType, additionalFields)` → `XADD` to job stream
+- `workerLoop(workerId, running)` → Polls and processes jobs
+- `processMessage(...)` → OK: copy to done stream + ACK; Error: no ACK (retry/DLQ)
+
 ### KeyspaceNotificationConfig
 **File**: `src/main/java/com/redis/patterns/config/KeyspaceNotificationConfig.java`
 
@@ -148,6 +176,12 @@ When timeout key expires:
 |--------|----------|---------|
 | POST | `/request` | Send request |
 | POST | `/response` | Send response |
+
+### Work Queue Controller (`/api/work-queue`)
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/produce` | Produce a job (params: processingType=OK\|Error) |
+| GET | `/streams` | Get stream names for this pattern |
 
 ---
 
@@ -214,13 +248,15 @@ HGETALL dlq:config:test-stream
 │   ├── controller/
 │   │   ├── DLQController.java
 │   │   ├── PubSubController.java
-│   │   └── RequestReplyController.java
+│   │   ├── RequestReplyController.java
+│   │   └── WorkQueueController.java
 │   ├── service/
 │   │   ├── RedisLuaFunctionLoader.java   # Loads Lua on startup
 │   │   ├── RedisStreamListenerService.java  # XREAD BLOCK + Virtual Threads
 │   │   ├── DLQMessagingService.java
 │   │   ├── PubSubService.java
 │   │   ├── RequestReplyService.java
+│   │   ├── WorkQueueService.java         # 4 Virtual Thread workers
 │   │   └── WebSocketEventService.java
 │   └── dto/
 │       └── DLQEvent.java                 # WebSocket event model
@@ -229,6 +265,7 @@ HGETALL dlq:config:test-stream
 │   │   ├── dlq/                          # DLQ demo page
 │   │   ├── pubsub/                       # Pub/Sub demo page
 │   │   ├── request-reply/                # Request/Reply demo page
+│   │   ├── work-queue/                   # Work Queue demo page
 │   │   ├── stream-viewer/                # Reusable stream viewer
 │   │   └── dlq-actions/                  # Process buttons
 │   └── services/

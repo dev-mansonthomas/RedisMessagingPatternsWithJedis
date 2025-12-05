@@ -19,6 +19,10 @@ export const routes: Routes = [
     loadComponent: () => import('./components/request-reply/request-reply.component').then(m => m.RequestReplyComponent)
   },
   {
+    path: 'work-queue',
+    loadComponent: () => import('./components/work-queue/work-queue.component').then(m => m.WorkQueueComponent)
+  },
+  {
     path: '**',
     redirectTo: '/dlq'
   }

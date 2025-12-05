@@ -9,6 +9,7 @@
 - **Dead Letter Queue (DLQ)** - Failed message handling with retry logic
 - **Publish/Subscribe (Pub/Sub)** - Fire-and-forget messaging
 - **Request/Reply** - Synchronous-like pattern with correlation IDs and timeout handling
+- **Work Queue** - Competing consumers pattern with parallel workers
 
 ## Tech Stack
 
@@ -26,9 +27,9 @@
 ```
 ┌───────────────────────────────────────────────────────────────────-──┐
 │                         Angular Frontend                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                   │
-│  │ DLQ Page    │  │ Pub/Sub Page│  │ Req/Reply   │                   │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                   │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
+│  │ DLQ Page    │  │ Pub/Sub Page│  │ Req/Reply   │  │ Work Queue  │  │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  │
 │         │                │                │                          │
 │         └────────────────┼────────────────┘                          │
 │                          │ WebSocket (SockJS)                        │
@@ -43,7 +44,7 @@
 │  └─────────────────────────────────────────────────────────────────┘ │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐   │
 │  │ DLQMessaging    │  │ PubSubService   │  │ RequestReplyService │   │
-│  │ Service         │  │                 │  │                     │   │
+│  │ Service         │  │                 │  │ + WorkQueueService  │   │
 │  └────────┬────────┘  └────────┬────────┘  └──────────┬──────────┘   │
 └───────────┼────────────────────┼─────────────────────┼───────────────┘
             │                    │                     │
@@ -85,13 +86,21 @@
 - Lua functions `request` and `response` ensure atomicity
 - Multiple workers can process requests without duplicate processing (Consumer Groups)
 
-### 4. Virtual Threads + XREAD BLOCK
+### 4. Work Queue / Competing Consumers Pattern
+- Uses **Redis Streams** with **Consumer Groups**
+- Fire-and-forget: producers push jobs, workers consume in parallel
+- 4 Virtual Thread workers poll every 100ms using `read_claim_or_dlq` Lua function
+- Jobs with `processingType=OK` → copied to worker-specific done stream + ACK
+- Jobs with `processingType=Error` → not ACK'd → retry → DLQ after 2 attempts
+- Streams: `jobs.imageProcessing.v1`, `jobs.done.worker-{1-4}`, `jobs.imageProcessing.v1:dlq`
+
+### 5. Virtual Threads + XREAD BLOCK
 - `RedisStreamListenerService` uses Java 21 Virtual Threads
 - One lightweight thread per monitored stream
 - `XREAD BLOCK 1000` provides push-like behavior with 1-second timeout
 - Detects ALL messages (API + external sources like Redis Insight)
 
-### 5. Single Consumer Architecture
+### 6. Single Consumer Architecture
 - **Visualization**: Uses `XREVRANGE` (read-only, no PENDING entries)
 - **Processing**: Uses `XREADGROUP` with `test-group` consumer group
 - This prevents phantom messages in the UI
@@ -106,6 +115,7 @@
 | `src/.../service/DLQMessagingService.java` | DLQ operations (produce, claim, ack) |
 | `src/.../service/PubSubService.java` | Pub/Sub publish |
 | `src/.../service/RequestReplyService.java` | Request/Reply with timeout handling |
+| `src/.../service/WorkQueueService.java` | Work Queue with 4 Virtual Thread workers |
 | `src/.../config/KeyspaceNotificationConfig.java` | Timeout detection via key expiration |
 | `src/.../config/RedisPubSubListener.java` | Pub/Sub subscriber |
 | `frontend/src/app/services/websocket.service.ts` | WebSocket client (SockJS) |

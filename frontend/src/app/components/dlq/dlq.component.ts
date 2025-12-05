@@ -31,7 +31,8 @@ import { DlqActionsComponent } from '../dlq-actions/dlq-actions.component';
               group="test-group"
               consumer="consumer-1"
               [pageSize]="10"
-              [showNextIndicator]="true">
+              [showNextIndicator]="true"
+              [containerHeight]="625">
             </app-stream-viewer>
           </div>
 
@@ -44,7 +45,8 @@ import { DlqActionsComponent } from '../dlq-actions/dlq-actions.component';
               stream="test-stream:dlq"
               group="dlq-group"
               consumer="dlq-consumer"
-              [pageSize]="10">
+              [pageSize]="10"
+              [containerHeight]="550">
             </app-stream-viewer>
           </div>
         </div>

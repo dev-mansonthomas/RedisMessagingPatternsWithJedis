@@ -30,7 +30,7 @@ export interface StreamMessage {
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="stream-viewer">
+    <div class="stream-viewer" [style.height.px]="containerHeight">
       <div class="stream-header">
         <h3 class="stream-name">{{ stream }}</h3>
         <div class="connection-status" [class.connected]="isConnected" [class.disconnected]="!isConnected">
@@ -87,7 +87,8 @@ export interface StreamMessage {
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      height: 100%;
+      box-sizing: border-box;
+      min-height: 0;
     }
 
     .stream-header {
@@ -139,8 +140,9 @@ export interface StreamMessage {
     }
 
     .messages-container {
-      flex: 1;
-      overflow-y: auto;
+      flex: 1 1 auto;
+      min-height: 0;     
+      overflow-y: scroll;
       display: flex;
       flex-direction: column;
       gap: 2px;
@@ -148,6 +150,20 @@ export interface StreamMessage {
       padding-left: 36px;  /* Space for next indicator arrow */
       background: #f8fafc;
     }
+
+    .messages-container::-webkit-scrollbar {
+      width: 5px;     /* largeur fixe, toujours visible */
+    }
+
+    .messages-container::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+
+    .messages-container::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+      
 
     .more-messages {
       text-align: center;
@@ -166,6 +182,9 @@ export interface StreamMessage {
       overflow: hidden;
       transition: box-shadow 0.15s ease;
       position: relative;
+      flex: 0 0 125px; 
+      display:flex;
+      flex-direction: column;
     }
 
     .message-cell:hover {
@@ -281,6 +300,7 @@ export interface StreamMessage {
       display: flex;
       flex-direction: column;
       gap: 4px;
+      overflow:hidden;
     }
 
     .field-row {
@@ -337,6 +357,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
   @Input() consumer = '';
   @Input() pageSize = 10;
   @Input() showNextIndicator = false;  // Show indicator for next message to process
+  @Input() containerHeight = 275;  // Height in pixels (default: 275px)
 
   private wsService = inject(WebSocketService);
   private apiService = inject(RedisApiService);

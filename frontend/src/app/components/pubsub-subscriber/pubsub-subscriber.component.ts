@@ -145,6 +145,19 @@ export interface PubSubMessage {
       max-height: 275px; /* Show scrollbar after ~2 messages */
     }
 
+    .messages-container::-webkit-scrollbar {
+      width: 5px;     /* largeur fixe, toujours visible */
+    }
+
+    .messages-container::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+
+    .messages-container::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+
     .empty-state {
       display: flex;
       flex-direction: column;
