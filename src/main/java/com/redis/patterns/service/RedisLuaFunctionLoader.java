@@ -37,6 +37,7 @@ public class RedisLuaFunctionLoader {
     private static final String FUNCTION_NAME = "read_claim_or_dlq";
     private static final String REQUEST_FUNCTION_NAME = "request";
     private static final String RESPONSE_FUNCTION_NAME = "response";
+    private static final String ROUTE_MESSAGE_FUNCTION_NAME = "route_message";
     private static final String LUA_SCRIPT_PATH = "lua/stream_utils.lua";
 
     /**
@@ -67,6 +68,7 @@ public class RedisLuaFunctionLoader {
             verifyFunctionLoaded(jedis, LIBRARY_NAME, FUNCTION_NAME);
             verifyFunctionLoaded(jedis, LIBRARY_NAME, REQUEST_FUNCTION_NAME);
             verifyFunctionLoaded(jedis, LIBRARY_NAME, RESPONSE_FUNCTION_NAME);
+            verifyFunctionLoaded(jedis, LIBRARY_NAME, ROUTE_MESSAGE_FUNCTION_NAME);
 
             log.info("All Lua functions loaded and verified successfully");
 

@@ -27,6 +27,10 @@ export const routes: Routes = [
     loadComponent: () => import('./components/fan-out/fan-out.component').then(m => m.FanOutComponent)
   },
   {
+    path: 'topic-routing',
+    loadComponent: () => import('./components/topic-routing/topic-routing.component').then(m => m.TopicRoutingComponent)
+  },
+  {
     path: '**',
     redirectTo: '/dlq'
   }

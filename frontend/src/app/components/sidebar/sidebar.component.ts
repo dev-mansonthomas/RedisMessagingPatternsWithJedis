@@ -239,6 +239,19 @@ export class SidebarComponent {
                <line x1="12" y1="8" x2="19" y2="16"></line>
              </svg>`,
       route: '/fan-out'
+    },
+    {
+      id: 'topic-routing',
+      label: 'Topic Routing',
+      icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+               <path d="M16 3h5v5"></path>
+               <path d="M8 3H3v5"></path>
+               <path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"></path>
+               <path d="m15 9 6-6"></path>
+               <circle cx="18" cy="18" r="3"></circle>
+               <circle cx="6" cy="18" r="3"></circle>
+             </svg>`,
+      route: '/topic-routing'
     }
   ];
 

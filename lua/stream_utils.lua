@@ -9,6 +9,7 @@
   1. read_claim_or_dlq - DLQ pattern with XREADGROUP CLAIM (Redis 8.4.0+)
   2. request - Request/Reply pattern request sender
   3. response - Request/Reply pattern response sender
+  4. route_message - Topic routing pattern (routes messages based on routing key)
 
   Author: Redis Patterns Team
   Redis Version: 8.4.0+
@@ -321,5 +322,166 @@ redis.register_function('response', function(keys, args)
   local message_id = redis.call('XADD', stream_name, '*', unpack(xadd_args))
 
   return message_id
+end)
+
+
+-- ============================================================================
+-- Function 4: route_message (Topic Routing Pattern with Dynamic Rules)
+-- ============================================================================
+--
+-- This function implements a dynamic Topic Routing pattern similar to RabbitMQ's
+-- topic exchange, but MORE POWERFUL:
+--   - Rules are stored in Redis and loaded dynamically (no redeploy needed)
+--   - Uses Lua patterns (more expressive than RabbitMQ's * and #)
+--   - Supports version-aware routing (v1 -> v1 targets, v2 -> v2 targets)
+--   - Metadata configurable (maxRules, etc.)
+--
+-- Redis Data Structures:
+--   routing:rules:{exchange_stream}   - Hash with rules (field=id, value=JSON)
+--   routing:config:{exchange_stream}  - Hash with metadata (maxRules, version, etc.)
+--
+-- Rule JSON format:
+--   {
+--     "pattern": "^order%.",          -- Lua pattern to match routing key
+--     "destination": "events.order.v1",   -- Target stream
+--     "description": "All order events",
+--     "priority": 10,                 -- Rule priority (lower = first)
+--     "enabled": true,                -- Enable/disable rule
+--     "stopOnMatch": false            -- If true, stop evaluating other rules after match
+--   }
+--
+-- KEYS:
+--   [1] exchange_stream - The main "exchange" stream (e.g., "events.topic.v1")
+--
+-- ARGS:
+--   [1] routing_key - The routing key (e.g., "order.created.v1")
+--   [2] payload_json - JSON payload to route
+--
+-- RETURNS:
+--   {
+--     exchange_id: ID in the exchange stream,
+--     routed_to: array of {stream_name, message_id},
+--     rules_evaluated: number of rules evaluated,
+--     rules_matched: number of rules that matched
+--   }
+--
+-- ============================================================================
+
+redis.register_function('route_message', function(keys, args)
+  local exchange_stream = keys[1]
+  local routing_key = args[1]
+  local payload_json = args[2]
+
+  local routed_to = {}
+  local rules_evaluated = 0
+  local rules_matched = 0
+
+  -- -------------------------------------------------------------------------
+  -- Step 1: Load metadata/config from Redis
+  -- -------------------------------------------------------------------------
+  local config_key = 'routing:config:' .. exchange_stream
+  local max_rules = tonumber(redis.call('HGET', config_key, 'maxRules')) or 20
+
+  -- -------------------------------------------------------------------------
+  -- Step 2: Extract version from exchange stream (e.g., 'events.topic.v1' -> '1')
+  -- -------------------------------------------------------------------------
+  local exchange_version = string.match(exchange_stream, '%.v(%d+)$')
+
+  -- -------------------------------------------------------------------------
+  -- Step 3: Parse payload and add routing metadata
+  -- -------------------------------------------------------------------------
+  local payload = cjson.decode(payload_json)
+  payload['routingKey'] = routing_key
+  payload['routedAt'] = redis.call('TIME')[1]
+  if exchange_version then
+    payload['apiVersion'] = 'v' .. exchange_version
+  end
+
+  local xadd_args = {}
+  for k, v in pairs(payload) do
+    if type(v) == 'table' then
+      table.insert(xadd_args, k)
+      table.insert(xadd_args, cjson.encode(v))
+    else
+      table.insert(xadd_args, k)
+      table.insert(xadd_args, tostring(v))
+    end
+  end
+
+  -- -------------------------------------------------------------------------
+  -- Step 4: Add message to exchange stream (audit trail)
+  -- -------------------------------------------------------------------------
+  local exchange_id = redis.call('XADD', exchange_stream, '*', unpack(xadd_args))
+
+  -- -------------------------------------------------------------------------
+  -- Step 5: Load routing rules from Redis
+  -- -------------------------------------------------------------------------
+  local rules_key = 'routing:rules:' .. exchange_stream
+  local rules_raw = redis.call('HGETALL', rules_key)
+
+  local rules = {}
+  for i = 1, #rules_raw, 2 do
+    local rule_id = rules_raw[i]
+    local rule_json = rules_raw[i + 1]
+    local ok, rule = pcall(cjson.decode, rule_json)
+    if ok and rule then
+      rule.id = rule_id
+      rule.priority = rule.priority or 100
+      if rule.enabled == nil then rule.enabled = true end
+      table.insert(rules, rule)
+    end
+  end
+
+  -- Sort rules by priority (lower = higher priority)
+  table.sort(rules, function(a, b) return a.priority < b.priority end)
+
+  -- -------------------------------------------------------------------------
+  -- Step 6: Evaluate rules and collect target streams
+  -- -------------------------------------------------------------------------
+  local target_streams = {}
+
+  for _, rule in ipairs(rules) do
+    if rules_evaluated >= max_rules then break end
+    rules_evaluated = rules_evaluated + 1
+
+    -- Check if rule should be evaluated
+    local should_evaluate = rule.enabled and rule.pattern and rule.destination
+
+    if should_evaluate then
+      -- Evaluate Lua pattern
+      local match = string.match(routing_key, rule.pattern)
+      if match then
+        local already_added = false
+        for _, t in ipairs(target_streams) do
+          if t == rule.destination then
+            already_added = true
+            break
+          end
+        end
+        if not already_added then
+          table.insert(target_streams, rule.destination)
+          rules_matched = rules_matched + 1
+        end
+        -- If stopOnMatch is true, stop evaluating other rules
+        if rule.stopOnMatch then
+          break
+        end
+      end
+    end
+  end
+
+  -- -------------------------------------------------------------------------
+  -- Step 7: Route message to all matching target streams
+  -- -------------------------------------------------------------------------
+  for i = 1, #target_streams do
+    local target = target_streams[i]
+    local target_id = redis.call('XADD', target, '*', unpack(xadd_args))
+    table.insert(routed_to, { target, target_id })
+  end
+
+  -- -------------------------------------------------------------------------
+  -- Step 8: Return routing results with metadata
+  -- -------------------------------------------------------------------------
+  return { exchange_id, routed_to, rules_evaluated, rules_matched }
 end)
 

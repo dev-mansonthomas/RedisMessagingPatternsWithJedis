@@ -374,13 +374,14 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
   isLoading = true;
 
   ngOnInit(): void {
-    // Only connect if stream name is provided
-    if (this.stream && this.group && this.consumer) {
+    // Connect if stream name is provided
+    // For simple streams (no consumer groups), group and consumer are optional
+    if (this.stream) {
       this.loadInitialData();
       this.connectWebSocket();
       this.subscribeToRefresh();
     } else {
-      console.warn('StreamViewerComponent: Missing required parameters (stream, group, consumer)');
+      console.warn('StreamViewerComponent: Missing required parameter (stream)');
       this.isLoading = false;
     }
   }
