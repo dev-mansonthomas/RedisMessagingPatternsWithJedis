@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, inject } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -23,6 +23,7 @@ interface SleepOption {
   selector: 'app-work-queue',
   standalone: true,
   imports: [CommonModule, FormsModule, StreamViewerComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="work-queue-container">
       <div class="page-header">
@@ -391,6 +392,7 @@ interface SleepOption {
 export class WorkQueueComponent implements OnInit, OnDestroy {
   private http = inject(HttpClient);
   private refreshService = inject(StreamRefreshService);
+  private cdr = inject(ChangeDetectorRef);
   private apiUrl = 'http://localhost:8080/api/work-queue';
 
   // Production state
@@ -444,6 +446,7 @@ export class WorkQueueComponent implements OnInit, OnDestroy {
       next: (response) => {
         if (response.success) {
           this.jobsProduced++;
+          this.cdr.markForCheck();
         }
         // Schedule next job
         this.productionInterval = setTimeout(() => this.produceNextJob(), this.selectedSleep);
@@ -463,6 +466,7 @@ export class WorkQueueComponent implements OnInit, OnDestroy {
         console.log('All work queue streams cleared');
         this.jobsProduced = 0;
         this.jobCounter = 0;
+        this.cdr.markForCheck();
 
         // Refresh all stream viewers
         setTimeout(() => {

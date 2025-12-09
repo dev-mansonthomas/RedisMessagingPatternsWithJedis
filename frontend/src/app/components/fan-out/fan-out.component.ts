@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, inject } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -22,6 +22,7 @@ interface SleepOption {
   selector: 'app-fan-out',
   standalone: true,
   imports: [CommonModule, FormsModule, StreamViewerComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fan-out-container">
       <div class="page-header">
@@ -367,6 +368,7 @@ interface SleepOption {
 export class FanOutComponent implements OnInit, OnDestroy {
   private http = inject(HttpClient);
   private refreshService = inject(StreamRefreshService);
+  private cdr = inject(ChangeDetectorRef);
   private apiUrl = 'http://localhost:8080/api/fan-out';
 
   // Production state
@@ -420,6 +422,7 @@ export class FanOutComponent implements OnInit, OnDestroy {
       next: (response) => {
         if (response.success) {
           this.eventsProduced++;
+          this.cdr.markForCheck();
         }
         this.productionInterval = setTimeout(() => this.produceNextEvent(), this.selectedSleep);
       },
@@ -436,6 +439,7 @@ export class FanOutComponent implements OnInit, OnDestroy {
         console.log('All fan-out streams cleared');
         this.eventsProduced = 0;
         this.eventCounter = 0;
+        this.cdr.markForCheck();
 
         setTimeout(() => {
           this.refreshService.triggerRefresh();

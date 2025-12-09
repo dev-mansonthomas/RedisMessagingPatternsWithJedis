@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, inject, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject, ChangeDetectorRef, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -25,6 +25,7 @@ interface RoutingResult {
   selector: 'app-topic-routing',
   standalone: true,
   imports: [CommonModule, FormsModule, StreamViewerComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="topic-routing-container">
       <div class="page-header">
@@ -939,7 +940,7 @@ export class TopicRoutingComponent implements OnInit, OnDestroy {
   loadRules(): void {
     this.loadingRules = true;
     this.rulesError = null;
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
 
     this.rulesService.getAllRules(this.exchangeStream).subscribe({
       next: (response) => {
@@ -947,13 +948,13 @@ export class TopicRoutingComponent implements OnInit, OnDestroy {
         if (response.success) {
           this.rules = response.rules;
         }
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       },
       error: (err) => {
         this.loadingRules = false;
         this.rulesError = 'Failed to load rules. Is the backend running on port 8080?';
         console.error('Failed to load rules:', err);
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       }
     });
   }
@@ -1078,6 +1079,7 @@ export class TopicRoutingComponent implements OnInit, OnDestroy {
       next: (response) => {
         if (response.success) {
           this.messagesRouted++;
+          this.cdr.markForCheck();
         }
       },
       error: (error) => {
@@ -1091,6 +1093,7 @@ export class TopicRoutingComponent implements OnInit, OnDestroy {
       next: () => {
         console.log('All topic routing streams cleared');
         this.messagesRouted = 0;
+        this.cdr.markForCheck();
 
         setTimeout(() => {
           this.refreshService.triggerRefresh();

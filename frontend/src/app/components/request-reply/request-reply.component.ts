@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, ChangeDetectorRef, inject, signal } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -31,6 +31,7 @@ interface Response {
   selector: 'app-request-reply',
   standalone: true,
   imports: [CommonModule, FormsModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container">
       <div class="page-header">
@@ -299,7 +300,7 @@ export class RequestReplyComponent implements OnInit, OnDestroy {
     this.wsService.getConnectionStatus().subscribe((connected: boolean) => {
       console.log('RequestReply: WebSocket connection status changed:', connected);
       this.isConnected.set(connected);
-      this.cdr.detectChanges();
+      this.cdr.markForCheck();
     });
 
     this.wsSubscription = this.wsService.getEvents().subscribe((event: any) => {
@@ -330,7 +331,7 @@ export class RequestReplyComponent implements OnInit, OnDestroy {
     this.stopTimer(); // Clear any existing timer
     this.timerInterval = setInterval(() => {
       this.elapsedSeconds++;
-      this.cdr.detectChanges();
+      this.cdr.markForCheck();
     }, 1000);
   }
 
@@ -366,7 +367,7 @@ export class RequestReplyComponent implements OnInit, OnDestroy {
           console.log('Request sent, correlation ID:', result.correlationId);
           this.response.correlationId = result.correlationId;
           this.isSending = false;
-          this.cdr.detectChanges();
+          this.cdr.markForCheck();
         },
         error: (error) => {
           console.error('Error sending request:', error);
@@ -379,7 +380,7 @@ export class RequestReplyComponent implements OnInit, OnDestroy {
 
   clearResponse(): void {
     this.response = { correlationId: '', type: null };
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
   }
 
   private handleResponse(responseData: any): void {
@@ -411,6 +412,6 @@ export class RequestReplyComponent implements OnInit, OnDestroy {
         break;
     }
 
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
   }
 }

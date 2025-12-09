@@ -867,6 +867,17 @@ public class DLQMessagingService {
 
 
     /**
+     * Clears the default DLQ demo streams (test-stream and test-stream:dlq).
+     * Called at startup to ensure a clean state for demos.
+     */
+    public void clearDLQStreams() {
+        log.info("Clearing DLQ demo streams...");
+        deleteStream("test-stream");
+        deleteStream("test-stream:dlq");
+        log.info("DLQ demo streams cleared");
+    }
+
+    /**
      * Deletes a stream if it exists.
      *
      * @param streamName Name of the stream to delete

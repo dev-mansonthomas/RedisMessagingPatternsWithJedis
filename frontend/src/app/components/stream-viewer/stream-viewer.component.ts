@@ -1,4 +1,4 @@
-import { Component, Input, OnInit, OnDestroy, inject, ChangeDetectorRef } from '@angular/core';
+import { Component, Input, OnInit, OnDestroy, inject, ChangeDetectorRef, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { WebSocketService, DLQEvent } from '../../services/websocket.service';
 import { RedisApiService } from '../../services/redis-api.service';
@@ -29,6 +29,7 @@ export interface StreamMessage {
   selector: 'app-stream-viewer',
   standalone: true,
   imports: [CommonModule],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="stream-viewer" [style.height.px]="containerHeight">
       <div class="stream-header">
@@ -433,7 +434,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
           console.warn(`StreamViewer [${this.stream}]: Response not successful or no messages`, response);
         }
         this.isLoading = false;
-        this.cdr.detectChanges(); // Force change detection
+        this.cdr.markForCheck(); // Force change detection
       },
       error: (error) => {
         console.error(`StreamViewer [${this.stream}]: Failed to load messages`, error);
@@ -457,7 +458,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
       status => {
         console.log(`StreamViewer [${this.stream}]: Connection status changed to ${status}`);
         this.isConnected = status;
-        this.cdr.detectChanges(); // Force change detection
+        this.cdr.markForCheck(); // Force change detection
       }
     );
 
@@ -516,7 +517,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
 
       // Update next indicator after deletion
       this.updateNextIndicator();
-      this.cdr.detectChanges();
+      this.cdr.markForCheck();
       return;
     }
 
@@ -559,7 +560,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
       // Update next indicator after adding new message
       this.updateNextIndicator();
 
-      this.cdr.detectChanges(); // Force change detection
+      this.cdr.markForCheck(); // Force change detection
     }
   }
 
@@ -595,7 +596,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
           if (nextMessage) {
             nextMessage.isNextToProcess = true;
             console.log(`StreamViewer [${this.stream}]: ✅ Marked message ${response.nextMessageId} as next to process`);
-            this.cdr.detectChanges();
+            this.cdr.markForCheck();
           } else {
             console.warn(`StreamViewer [${this.stream}]: ❌ Next message ${response.nextMessageId} not found in displayed messages`);
             console.warn(`StreamViewer [${this.stream}]: Available message IDs:`, this.displayedMessages.map(m => m.id));
@@ -631,7 +632,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
     // Put indicator on this message
     message.isNextToProcess = true;
     console.log(`StreamViewer [${this.stream}]: ✅ Put indicator on message ${currentMessageId}`);
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
   }
 
   /**
@@ -661,13 +662,13 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
     if (message) {
       console.log(`StreamViewer [${this.stream}]: Message found! Setting isFlashingError=true`);
       message.isFlashingError = true;
-      this.cdr.detectChanges();
+      this.cdr.markForCheck();
 
       // Remove the flash class after animation completes (2 seconds)
       setTimeout(() => {
         console.log(`StreamViewer [${this.stream}]: Removing red flash from message ${messageId}`);
         message.isFlashingError = false;
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       }, 2000);
     } else {
       console.warn(`StreamViewer [${this.stream}]: Message ${messageId} not found for flashing`);
@@ -689,7 +690,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
     if (message) {
       console.log(`StreamViewer [${this.stream}]: Message found! Setting isFlashingSuccess=true`);
       message.isFlashingSuccess = true;
-      this.cdr.detectChanges();
+      this.cdr.markForCheck();
 
       // Remove the flash class after animation completes (2 seconds)
       setTimeout(() => {
@@ -711,7 +712,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
           this.updateNextIndicator();
         }
 
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       }, 2000);  // Même durée que flash-error
     } else {
       console.warn(`StreamViewer [${this.stream}]: Message ${messageId} not found for flashing`);
