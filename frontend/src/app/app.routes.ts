@@ -31,6 +31,10 @@ export const routes: Routes = [
     loadComponent: () => import('./components/topic-routing/topic-routing.component').then(m => m.TopicRoutingComponent)
   },
   {
+    path: 'scheduled-messages',
+    loadComponent: () => import('./components/scheduled-messages/scheduled-messages.component').then(m => m.ScheduledMessagesComponent)
+  },
+  {
     path: '**',
     redirectTo: '/dlq'
   }

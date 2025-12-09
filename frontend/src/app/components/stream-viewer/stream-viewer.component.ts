@@ -48,6 +48,7 @@ export interface StreamMessage {
         <!-- Messages as compact cells -->
         <div *ngFor="let message of displayedMessages"
              class="message-cell"
+             [style.flex]="'0 0 ' + messageHeight + 'px'"
              [class.flash-error]="message.isFlashingError"
              [class.flash-success]="message.isFlashingSuccess"
              [class.next-to-process]="message.isNextToProcess">
@@ -358,6 +359,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
   @Input() pageSize = 10;
   @Input() showNextIndicator = false;  // Show indicator for next message to process
   @Input() containerHeight = 275;  // Height in pixels (default: 275px)
+  @Input() messageHeight = 125;  // Height of each message cell in pixels (default: 125px)
 
   private wsService = inject(WebSocketService);
   private apiService = inject(RedisApiService);

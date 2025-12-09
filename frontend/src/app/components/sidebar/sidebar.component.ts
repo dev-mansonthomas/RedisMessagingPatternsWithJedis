@@ -252,6 +252,15 @@ export class SidebarComponent {
                <circle cx="6" cy="18" r="3"></circle>
              </svg>`,
       route: '/topic-routing'
+    },
+    {
+      id: 'scheduled-messages',
+      label: 'Scheduled Messages',
+      icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+               <circle cx="12" cy="12" r="10"></circle>
+               <polyline points="12 6 12 12 16 14"></polyline>
+             </svg>`,
+      route: '/scheduled-messages'
     }
   ];
 
