@@ -1,0 +1,182 @@
+<div class="content-routing-container">
+  <div class="page-header">
+    <h1 class="page-title">Content-Based Routing</h1>
+    <p class="page-description">
+      Route payments to different streams based on message content (amount). Uses Redis Streams with read_claim_or_dlq Lua function.
+    </p>
+  </div>
+
+  <div class="main-layout">
+    <!-- Left: Payment Form -->
+    <div class="form-section">
+      <div class="panel">
+        <div class="panel-header form-header">
+          <h3>💳 Submit Payment</h3>
+        </div>
+        <div class="panel-content">
+          <div class="form-group">
+            <label>Payment ID <span class="optional">(auto-generated if empty)</span></label>
+            <input type="text" [ngModel]="paymentId()" (ngModelChange)="paymentId.set($event)" placeholder="PAY-XXXXXXXX" class="form-input">
+          </div>
+
+          <div class="form-group">
+            <label>Amount ($)</label>
+            <div class="amount-input-row">
+              <input type="number" [ngModel]="amount()" (ngModelChange)="amount.set($event)" class="form-input amount-input" min="0" step="0.01">
+              <span class="target-badge" [style.background]="getTargetColor()">→ {{ getTargetStream().split('.')[1] }}</span>
+            </div>
+            <div class="preset-buttons">
+              @for (preset of presetAmounts; track preset.value) {
+                <button (click)="setPresetAmount(preset.value)" class="btn-preset" [style.borderColor]="preset.color" [class.active]="amount() === preset.value">
+                  {{ preset.label }}
+                </button>
+              }
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group half">
+              <label>Country</label>
+              <select [ngModel]="country()" (ngModelChange)="country.set($event)" class="form-select">
+                @for (c of countries; track c) { <option [value]="c">{{ c }}</option> }
+              </select>
+            </div>
+            <div class="form-group half">
+              <label>Method</label>
+              <select [ngModel]="method()" (ngModelChange)="method.set($event)" class="form-select">
+                @for (m of methods; track m) { <option [value]="m">{{ m }}</option> }
+              </select>
+            </div>
+          </div>
+
+          <div class="button-group">
+            <button (click)="submitPayment()" [disabled]="isSubmitting()" class="btn-submit">
+              {{ isSubmitting() ? 'Submitting...' : '🚀 Submit Payment' }}
+            </button>
+            <button (click)="clearAll()" class="btn-clear">🗑️ Clear All</button>
+          </div>
+
+          @if (submitMessage()) {
+            <div class="message" [class.success]="isSuccess()" [class.error]="!isSuccess()">{{ submitMessage() }}</div>
+          }
+        </div>
+      </div>
+
+      <!-- Routing Rules -->
+      <div class="panel rules-panel">
+        <div class="panel-header rules-header">
+          <h3>📋 Routing Rules</h3>
+        </div>
+        <div class="panel-content">
+          <div class="rule-item standard">
+            <span class="rule-icon">🟢</span>
+            <div class="rule-content">
+              <span class="rule-condition">0 ≤ amount &lt; $100</span>
+              <span class="rule-arrow">→</span>
+              <span class="rule-target">payments.standard.v1</span>
+            </div>
+          </div>
+          <div class="rule-item high-risk">
+            <span class="rule-icon">🟠</span>
+            <div class="rule-content">
+              <span class="rule-condition">$100 ≤ amount &lt; $10,000</span>
+              <span class="rule-arrow">→</span>
+              <span class="rule-target">payments.highRisk.v1</span>
+            </div>
+          </div>
+          <div class="rule-item manual-review">
+            <span class="rule-icon">🔴</span>
+            <div class="rule-content">
+              <span class="rule-condition">amount ≥ $10,000</span>
+              <span class="rule-arrow">→</span>
+              <span class="rule-target">payments.manualReview.v1</span>
+            </div>
+          </div>
+          <div class="rule-item error">
+            <span class="rule-icon">⛔</span>
+            <div class="rule-content">
+              <span class="rule-condition">amount &lt; 0</span>
+              <span class="rule-arrow">→</span>
+              <span class="rule-target">DLQ (after 2 retries)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Stream Viewers -->
+    <div class="streams-section">
+      <div class="streams-row">
+        <div class="stream-wrapper incoming">
+          <app-stream-viewer [stream]="incomingStream" [pageSize]="1" [containerHeight]="200" [messageHeight]="100"></app-stream-viewer>
+        </div>
+      </div>
+      <div class="streams-row destination-streams">
+        <div class="stream-wrapper standard">
+          <app-stream-viewer [stream]="standardStream" [pageSize]="2" [containerHeight]="320" [messageHeight]="100"></app-stream-viewer>
+        </div>
+        <div class="stream-wrapper high-risk">
+          <app-stream-viewer [stream]="highRiskStream" [pageSize]="2" [containerHeight]="320" [messageHeight]="100"></app-stream-viewer>
+        </div>
+        <div class="stream-wrapper manual-review">
+          <app-stream-viewer [stream]="manualReviewStream" [pageSize]="2" [containerHeight]="320" [messageHeight]="100"></app-stream-viewer>
+        </div>
+      </div>
+      <div class="streams-row">
+        <div class="stream-wrapper dlq">
+          <app-stream-viewer [stream]="dlqStream" [pageSize]="2" [containerHeight]="280" [messageHeight]="100"></app-stream-viewer>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Explanation -->
+  <div class="explanation-section">
+    <h3 class="explanation-title">🔄 Payment Router Micro Service</h3>
+    <div class="explanation-content">
+      <div class="explanation-block">
+        <div class="block-title">📥 1. Message Submission</div>
+        <div class="block-code">
+          <div class="code-line"><span class="function">XADD</span> payments.incoming.v1 * ...</div>
+          <div class="code-line comment">// UI display the message immediatly with fast polling &amp; WebSocket</div>
+        </div>
+      </div>
+      <div class="explanation-block router-block">
+        <div class="block-title">⚙️ 2. Payment Router Micro Service</div>
+        <div class="block-code">
+          <div class="code-line"><span class="function">Thread.sleep</span>(2000) <span class="comment">// 2s delay for the demo</span></div>
+          <div class="code-line"><span class="comment">// Read Msg with LUA</span></div>
+          <div class="code-line">msg = <span class="function">FUNCTION read_claim_or_dlq</span>(<span class="param">max_deliveries</span>=2)</div>
+          <div class="code-line"></div>
+          <div class="code-line">try {{ '{' }}</div>
+          <div class="code-line">&nbsp;&nbsp;businessLogic(msg)</div>
+          <div class="code-line">&nbsp;&nbsp;<span class="function">XACK</span> payments.incoming.v1</div>
+          <div class="code-line">{{ '}' }} catch(e) {{ '{' }}</div>
+          <div class="code-line">&nbsp;&nbsp;log.error("Payment Error", e)</div>
+          <div class="code-line">&nbsp;&nbsp;<span class="comment">// NO ACK => DLQ after <span class="param">max_deliveries</span> failures</span></div>
+          <div class="code-line">{{ '}' }}</div>
+        </div>
+      </div>
+      <div class="explanation-block">
+        <div class="block-title">📤 3. Business Logic</div>
+        <div class="block-code">
+          <div class="code-line comment">// Any complex routing can be implemented in the Micro Service,</div>
+          <div class="code-line comment">// for the demo we use a simple one.</div>
+          <div class="code-line"></div>
+          <div class="code-line">businessLogic(msg) {{ '{' }}</div>
+          <div class="code-line">&nbsp;&nbsp;if (msg.amount &lt; 0) <span class="error">throw new Exception()</span></div>
+          <div class="code-line">&nbsp;&nbsp;else if (msg.amount &lt; 100) <span class="function">XADD</span> payments.standard.v1</div>
+          <div class="code-line">&nbsp;&nbsp;else if (msg.amount &lt; 10000) <span class="function">XADD</span> payments.highRisk.v1</div>
+          <div class="code-line">&nbsp;&nbsp;else <span class="function">XADD</span> payments.manualReview.v1</div>
+          <div class="code-line">{{ '}' }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="explanation-note">
+      <strong>💡 DLQ Behavior:</strong> Negative amounts throw an error and are not ACK'd.
+      After <strong>2 delivery attempts</strong> (max_deliveries=2), <code>read_claim_or_dlq</code>
+      automatically routes the message to <code>payments.incoming.v1:dlq</code>.
+    </div>
+  </div>
+</div>
+

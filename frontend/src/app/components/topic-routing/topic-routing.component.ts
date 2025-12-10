@@ -910,7 +910,7 @@ export class TopicRoutingComponent implements OnInit, OnDestroy {
     'order.cancelled.vip.us.v1',     // → Audit ONLY (STOP! no VIP)
     'order.cancelled.vip.eu.v1'      // → Audit ONLY (STOP! no VIP, no GDPR)
   ];
-  selectedRoutingKey = 'order.created';
+  selectedRoutingKey = 'order.place.regular.us.v1';
 
   // State
   messagesRouted = 0;

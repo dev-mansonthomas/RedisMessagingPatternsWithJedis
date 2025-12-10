@@ -1,0 +1,143 @@
+<div class="pubsub-topic-container">
+  <div class="page-header">
+    <div class="header-row">
+      <h1 class="page-title">PubSub Topic Routing</h1>
+      <div class="ws-status" [class.connected]="wsConnected()" [class.disconnected]="!wsConnected()">
+        <span class="ws-dot"></span>
+        {{ wsConnected() ? 'WS Connected' : 'WS Disconnected' }}
+      </div>
+    </div>
+    <p class="page-description">
+      RabbitMQ-like Topic Exchange pattern using Redis native Pub/Sub with PSUBSCRIBE pattern matching.
+    </p>
+  </div>
+
+  <div class="content-layout">
+    <!-- Publisher Column -->
+    <div class="publisher-column">
+      <div class="panel">
+        <div class="panel-header publisher-header">
+          <h3>📤 Publisher</h3>
+        </div>
+        <div class="panel-content">
+          <div class="form-group">
+            <label>Routing Key</label>
+            <select [(ngModel)]="selectedRoutingKey" class="form-select">
+              <option value="order.eu.created">order.eu.created</option>
+              <option value="order.eu.cancelled">order.eu.cancelled</option>
+              <option value="order.us.created">order.us.created</option>
+              <option value="order.us.cancelled">order.us.cancelled</option>
+              <option value="order.asia.created">order.asia.created</option>
+              <option value="order.asia.cancelled">order.asia.cancelled</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Payload</label>
+            <div class="payload-fields">
+              @for (field of fields(); track $index) {
+                <div class="field-row">
+                  <input type="text" [(ngModel)]="field.key" placeholder="Key" class="form-input field-key">
+                  <input type="text" [(ngModel)]="field.value" placeholder="Value" class="form-input field-value">
+                  <button (click)="removeField($index)" class="btn-remove" [disabled]="fields().length === 1">✕</button>
+                </div>
+              }
+            </div>
+            <button (click)="addField()" class="btn-add">+ Add Field</button>
+          </div>
+          <button (click)="publishMessage()" [disabled]="isPublishing()" class="btn-publish">
+            {{ isPublishing() ? 'Publishing...' : '🚀 Publish Message' }}
+          </button>
+          @if (publishMessage$()) {
+            <div class="message" [class.success]="isSuccess()" [class.error]="!isSuccess()">
+              {{ publishMessage$() }}
+            </div>
+          }
+          <div class="note">
+            <span class="note-icon">ℹ️</span>
+            <span class="note-text">Subscriber count may include external Redis connections (e.g., RedisInsight, CLI).</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Redis Icon Column -->
+    <div class="icon-column">
+      <div class="icon-container">
+        <img src="assets/img/icon-streams-64-duotone.png" alt="Redis" class="redis-icon">
+        <div class="icon-label">Redis Pub/Sub</div>
+        <div class="icon-description">PSUBSCRIBE</div>
+      </div>
+    </div>
+
+    <!-- Subscribers Column -->
+    <div class="subscribers-column">
+      @for (subscriber of subscribers(); track subscriber.name) {
+        <div class="panel subscriber-panel">
+          <div class="panel-header subscriber-header">
+            <div class="header-left">
+              <h3>{{ subscriber.name }}</h3>
+              <span class="pattern-badge">{{ subscriber.pattern }}</span>
+            </div>
+            <span class="message-count">{{ subscriber.messages.length }} msgs</span>
+          </div>
+          <div class="messages-container">
+            @if (subscriber.messages.length === 0) {
+              <div class="empty-state">
+                <div class="empty-icon">📭</div>
+                <p class="empty-text">No messages yet</p>
+              </div>
+            }
+            @for (msg of subscriber.messages; track msg.timestamp) {
+              <div class="message-card">
+                <div class="message-header">
+                  <span class="message-channel">{{ msg.channel }}</span>
+                  <span class="message-time">{{ formatTime(msg.timestamp) }}</span>
+                </div>
+                <div class="message-payload">
+                  @for (field of getPayloadFields(msg.payload); track field.key) {
+                    <div class="payload-field">
+                      <span class="field-key">{{ field.key }}:</span>
+                      <span class="field-value">{{ field.value }}</span>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+
+  <!-- Explanation Section -->
+  <div class="explanation-section">
+    <h3 class="explanation-title">📡 PubSub Topic Routing (Pattern Matching)</h3>
+    <div class="explanation-content">
+      <div class="explanation-block">
+        <div class="block-title">📤 Publisher</div>
+        <div class="block-code">
+          <div class="code-line"><span class="function">PUBLISH</span> order.eu.created message</div>
+          <div class="code-line comment">// Route to channels matching patterns</div>
+        </div>
+      </div>
+      <div class="explanation-block">
+        <div class="block-title">🔄 Redis PSUBSCRIBE</div>
+        <div class="block-code">
+          <div class="code-line">✅ Native Redis (no Lua)</div>
+          <div class="code-line">✅ Pattern matching with wildcards</div>
+          <div class="code-line">❌ No message persistence</div>
+          <div class="code-line">❌ Less powerful than Stream routing</div>
+        </div>
+      </div>
+      <div class="explanation-block">
+        <div class="block-title">📥 Pattern Subscribers</div>
+        <div class="block-code">
+          <div class="code-line"><span class="function">PSUBSCRIBE</span> order.eu.*</div>
+          <div class="code-line"><span class="function">PSUBSCRIBE</span> order.*.created</div>
+          <div class="code-line comment">// Wildcard pattern matching</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+

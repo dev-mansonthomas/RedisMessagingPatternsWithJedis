@@ -565,7 +565,22 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
   }
 
   getFields(fields: Record<string, string>): {key: string; value: string}[] {
-    return Object.entries(fields).map(([key, value]) => ({ key, value }));
+    // Prioritize paymentId and amount to appear first
+    const priorityOrder = ['paymentId', 'amount'];
+    const entries = Object.entries(fields);
+
+    return entries.sort(([keyA], [keyB]) => {
+      const indexA = priorityOrder.indexOf(keyA);
+      const indexB = priorityOrder.indexOf(keyB);
+
+      // If both are priority fields, sort by priority order
+      if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+      // Priority fields come first
+      if (indexA !== -1) return -1;
+      if (indexB !== -1) return 1;
+      // Other fields keep original order
+      return 0;
+    }).map(([key, value]) => ({ key, value }));
   }
 
   /**

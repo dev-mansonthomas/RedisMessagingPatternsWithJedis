@@ -31,6 +31,14 @@ export const routes: Routes = [
     loadComponent: () => import('./components/topic-routing/topic-routing.component').then(m => m.TopicRoutingComponent)
   },
   {
+    path: 'pubsub-topic-routing',
+    loadComponent: () => import('./components/pubsub-topic-routing/pubsub-topic-routing.component').then(m => m.PubsubTopicRoutingComponent)
+  },
+  {
+    path: 'content-routing',
+    loadComponent: () => import('./components/content-based-routing/content-based-routing.component').then(m => m.ContentBasedRoutingComponent)
+  },
+  {
     path: 'scheduled-messages',
     loadComponent: () => import('./components/scheduled-messages/scheduled-messages.component').then(m => m.ScheduledMessagesComponent)
   },

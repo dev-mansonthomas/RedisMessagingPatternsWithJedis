@@ -37,6 +37,7 @@ public class RoutingRulesService implements CommandLineRunner {
     private final FanOutService fanOutService;
     private final WorkQueueService workQueueService;
     private final DLQMessagingService dlqMessagingService;
+    private final ContentBasedRoutingService contentBasedRoutingService;
 
     public static final String EXCHANGE_STREAM = "events.topic.v1";
 
@@ -48,13 +49,15 @@ public class RoutingRulesService implements CommandLineRunner {
                                @Lazy TopicRoutingService topicRoutingService,
                                @Lazy FanOutService fanOutService,
                                @Lazy WorkQueueService workQueueService,
-                               @Lazy DLQMessagingService dlqMessagingService) {
+                               @Lazy DLQMessagingService dlqMessagingService,
+                               @Lazy ContentBasedRoutingService contentBasedRoutingService) {
         this.jedisPool = jedisPool;
         this.objectMapper = objectMapper;
         this.topicRoutingService = topicRoutingService;
         this.fanOutService = fanOutService;
         this.workQueueService = workQueueService;
         this.dlqMessagingService = dlqMessagingService;
+        this.contentBasedRoutingService = contentBasedRoutingService;
     }
 
     @Override
@@ -97,6 +100,13 @@ public class RoutingRulesService implements CommandLineRunner {
             log.info("✓ DLQ demo streams cleared");
         } catch (Exception e) {
             log.warn("Could not clear DLQ demo streams: {}", e.getMessage());
+        }
+
+        try {
+            contentBasedRoutingService.clearAllStreams();
+            log.info("✓ Content-Based Routing streams cleared");
+        } catch (Exception e) {
+            log.warn("Could not clear Content-Based Routing streams: {}", e.getMessage());
         }
 
         log.info("All demo streams cleared");
