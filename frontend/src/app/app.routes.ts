@@ -43,6 +43,10 @@ export const routes: Routes = [
     loadComponent: () => import('./components/scheduled-messages/scheduled-messages.component').then(m => m.ScheduledMessagesComponent)
   },
   {
+    path: 'per-key-serialized',
+    loadComponent: () => import('./components/per-key-serialized/per-key-serialized.component').then(m => m.PerKeySerializedComponent)
+  },
+  {
     path: '**',
     redirectTo: '/dlq'
   }

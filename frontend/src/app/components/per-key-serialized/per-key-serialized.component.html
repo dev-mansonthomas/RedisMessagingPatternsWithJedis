@@ -1,0 +1,103 @@
+<div class="per-key-container">
+  <div class="page-header">
+    <h1 class="page-title">Per-Key Serialized Processing</h1>
+    <p class="page-description">Jobs for the same business key (orderId) are processed sequentially, while different keys can run in parallel.</p>
+  </div>
+
+  <div class="main-layout">
+    <!-- Left: Jobs Form -->
+    <div class="form-section">
+      <div class="panel">
+        <div class="panel-header">
+          <h3>📋 Jobs to Submit</h3>
+        </div>
+        <div class="panel-content">
+          <div class="jobs-list">
+            @for (job of jobs(); track $index) {
+              <div class="job-item" [class.selected]="job.selected" (click)="toggleJob($index)">
+                <input type="checkbox" [checked]="job.selected" (click)="$event.stopPropagation()">
+                <span class="order-badge" [style.background-color]="getOrderColor(job.orderId)">{{ job.orderId }}</span>
+                <span class="action-name">{{ job.action }}</span>
+              </div>
+            }
+          </div>
+
+          <div class="button-group">
+            <button (click)="submitJobs()" [disabled]="isSubmitting()" class="btn-submit">
+              {{ isSubmitting() ? 'Submitting...' : '🚀 Submit Jobs' }}
+            </button>
+            <button (click)="clearAll()" class="btn-clear">🗑️ Clear All</button>
+          </div>
+
+          @if (submitMessage()) {
+            <div class="message" [class.success]="isSuccess()" [class.error]="!isSuccess()">{{ submitMessage() }}</div>
+          }
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Stream Viewers -->
+    <div class="streams-section">
+      <div class="streams-row">
+        <div class="stream-wrapper incoming">
+          <app-stream-viewer stream="jobs.perkey.v1" [pageSize]="5" [containerHeight]="560" [messageHeight]="100"></app-stream-viewer>
+        </div>
+      </div>
+      <div class="streams-row workers">
+        <div class="stream-wrapper worker">
+          <app-stream-viewer stream="jobs.perkey.v1.worker1.done" [pageSize]="5" [containerHeight]="880" [messageHeight]="150"></app-stream-viewer>
+        </div>
+        <div class="stream-wrapper worker">
+          <app-stream-viewer stream="jobs.perkey.v1.worker2.done" [pageSize]="5" [containerHeight]="880" [messageHeight]="150"></app-stream-viewer>
+        </div>
+        <div class="stream-wrapper worker">
+          <app-stream-viewer stream="jobs.perkey.v1.worker3.done" [pageSize]="5" [containerHeight]="880" [messageHeight]="150"></app-stream-viewer>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Explanation Section -->
+  <div class="explanation-section">
+    <h3 class="explanation-title">🔑 Per-Key Serialized Processing</h3>
+    <div class="explanation-content">
+      <div class="explanation-block">
+        <div class="block-title">🎯 1. Problem</div>
+        <div class="block-code">
+          <div class="code-line comment">// Multiple jobs per entity (orderId)</div>
+          <div class="code-line comment">// But only ONE job at a time per entity</div>
+          <div class="code-line comment">// While maintaining global parallelism</div>
+        </div>
+      </div>
+      <div class="explanation-block">
+        <div class="block-title">🔒 2. Per-Key Lock</div>
+        <div class="block-code">
+          <div class="code-line">lock = <span class="function">SETNX</span> running:order:&lt;orderId&gt; &lt;jobId&gt;</div>
+          <div class="code-line"></div>
+          <div class="code-line">if (lock == null) {{ '{' }}</div>
+          <div class="code-line">&nbsp;&nbsp;<span class="comment">// orderId locked → skip this message</span></div>
+          <div class="code-line">&nbsp;&nbsp;<span class="comment">// Process other orderIds in parallel</span></div>
+          <div class="code-line">&nbsp;&nbsp;<span class="function">XAUTOCLAIM</span> <span class="comment">// Retry idle msgs later</span></div>
+          <div class="code-line">{{ '}' }}</div>
+        </div>
+      </div>
+      <div class="explanation-block">
+        <div class="block-title">⚙️ 3. Worker Processing</div>
+        <div class="block-code">
+          <div class="code-line">msg = <span class="function">XREADGROUP</span> jobs.perkey.v1</div>
+          <div class="code-line"><span class="function">Thread.sleep</span>(4000) <span class="comment">// 4s processing</span></div>
+          <div class="code-line"><span class="function">XADD</span> jobs.perkey.v1.workerN.done * ...</div>
+          <div class="code-line"><span class="function">XACK</span> jobs.perkey.v1</div>
+          <div class="code-line"><span class="function">DEL</span> running:order:&lt;orderId&gt; <span class="comment">// Release lock</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="explanation-note">
+      <strong>⚡ Result:</strong>
+      <span class="order-badge" style="background:#3b82f6">#1001</span> jobs (3) run <strong>sequentially</strong> •
+      <span class="order-badge" style="background:#10b981">#2002</span> and
+      <span class="order-badge" style="background:#f59e0b">#3003</span> run <strong>in parallel</strong> with #1001
+    </div>
+  </div>
+</div>
+

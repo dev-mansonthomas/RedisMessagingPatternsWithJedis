@@ -150,7 +150,7 @@ public class RequestReplyService {
                     REQUEST_CONSUMER_GROUP,
                     REQUEST_CONSUMER_NAME,
                     XReadGroupParams.xReadGroupParams().count(10).block(5000),
-                    Map.of(REQUEST_STREAM, StreamEntryID.UNRECEIVED_ENTRY)
+                    Map.of(REQUEST_STREAM, StreamEntryID.XREADGROUP_UNDELIVERED_ENTRY)
                 );
 
                 // Check if we got any actual messages
