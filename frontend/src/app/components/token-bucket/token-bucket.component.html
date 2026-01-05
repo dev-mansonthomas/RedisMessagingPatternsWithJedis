@@ -71,7 +71,10 @@
       <div class="panel chart-panel">
         <div class="panel-header">
           <h3>📊 Concurrent Jobs (Real-time)</h3>
-          <span class="refresh-badge">⚡ 100ms</span>
+          <div class="header-right">
+            <span class="total-completed">✅ {{ getTotalCompleted() }}/{{ getTotalJobs() }}</span>
+            <span class="refresh-badge">⚡ 100ms</span>
+          </div>
         </div>
 
         <div class="chart-container">
@@ -98,6 +101,10 @@
                 <span class="current" [style.color]="jt.color">{{ getRunningCount(jt.name) }}</span>
                 <span class="separator">/</span>
                 <span class="max">{{ jt.maxConcurrency }}</span>
+              </div>
+              <div class="chart-completed">
+                <span class="completed-icon">✅</span>
+                <span class="completed-count">{{ getCompletedCount(jt.name) }}/{{ jt.jobCount }}</span>
               </div>
             </div>
           }

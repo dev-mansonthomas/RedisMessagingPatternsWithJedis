@@ -10,6 +10,8 @@
 .panel { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .panel-header h3 { margin: 0; font-size: 1.1rem; color: #1e293b; }
+.panel-header .header-right { display: flex; align-items: center; gap: 12px; }
+.total-completed { font-size: 1rem; font-weight: 700; color: #10b981; background: #d1fae5; padding: 6px 14px; border-radius: 20px; }
 
 .clear-btn { padding: 6px 12px; font-size: 0.8rem; background: #fee2e2; color: #dc2626; border: none; border-radius: 6px; cursor: pointer; }
 .clear-btn:hover { background: #fecaca; }
@@ -71,6 +73,9 @@
 .chart-value .current { font-weight: 700; }
 .chart-value .separator { color: #94a3b8; margin: 0 2px; }
 .chart-value .max { color: #64748b; font-weight: 500; }
+.chart-completed { min-width: 80px; text-align: right; font-size: 0.9rem; color: #10b981; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.chart-completed .completed-icon { font-size: 0.85rem; }
+.chart-completed .completed-count { font-weight: 600; }
 
 /* Logs Section */
 .logs-section { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }

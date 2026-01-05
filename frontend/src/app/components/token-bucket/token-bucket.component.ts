@@ -20,6 +20,9 @@ interface ChartData {
   payment: number;
   email: number;
   csv: number;
+  payment_completed: number;
+  email_completed: number;
+  csv_completed: number;
 }
 
 @Component({
@@ -52,7 +55,10 @@ export class TokenBucketComponent implements OnInit, OnDestroy {
   isSuccess = signal(true);
 
   // Chart data - history for bar chart animation
-  chartData = signal<ChartData>({ payment: 0, email: 0, csv: 0 });
+  chartData = signal<ChartData>({
+    payment: 0, email: 0, csv: 0,
+    payment_completed: 0, email_completed: 0, csv_completed: 0
+  });
 
   // Logs
   submitLogs = signal<string[]>([]);
@@ -96,7 +102,10 @@ export class TokenBucketComponent implements OnInit, OnDestroy {
         this.chartData.set({
           payment: data.payment || 0,
           email: data.email || 0,
-          csv: data.csv || 0
+          csv: data.csv || 0,
+          payment_completed: data.payment_completed || 0,
+          email_completed: data.email_completed || 0,
+          csv_completed: data.csv_completed || 0
         });
         this.cdr.markForCheck();
       }
@@ -178,6 +187,20 @@ export class TokenBucketComponent implements OnInit, OnDestroy {
   getRunningCount(typeName: string): number {
     const data = this.chartData();
     return (data as any)[typeName] || 0;
+  }
+
+  getCompletedCount(typeName: string): number {
+    const data = this.chartData();
+    return (data as any)[typeName + '_completed'] || 0;
+  }
+
+  getTotalCompleted(): number {
+    const data = this.chartData();
+    return data.payment_completed + data.email_completed + data.csv_completed;
+  }
+
+  getTotalJobs(): number {
+    return this.jobTypes().reduce((sum, jt) => sum + jt.jobCount, 0);
   }
 }
 

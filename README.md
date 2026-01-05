@@ -21,6 +21,7 @@
 ## 📋 Table of Contents
 
 - [What is This Project?](#-what-is-this-project)
+- [Screenshots](#️-screenshots)
 - [Key Concepts](#-key-concepts-for-beginners)
 - [Implemented Patterns](#-implemented-patterns)
 - [Technology Stack](#-technology-stack)
@@ -45,6 +46,48 @@ This project is a **learning resource** that demonstrates enterprise messaging p
 - **Demonstration code** with Redis Functions (Lua), Jedis, and Java 21 Virtual Threads
 
 Whether you're new to messaging systems or Redis, this project helps you understand how to build reliable, scalable message-driven applications.
+
+---
+
+## 🖼️ Screenshots
+
+### Stream Patterns
+
+| Work Queue | Fan-Out |
+|:---:|:---:|
+| ![Work Queue](img/WorkQueue.jpg) | ![Fan-Out](img/Fan-Out.jpg) |
+| Distribute tasks across workers | One message to multiple consumers |
+
+| Per-Key Serialized Processing | Scheduled Messages |
+|:---:|:---:|
+| ![Per-Key Serialized](img/Per-Key%20serialised%20Processing.jpg) | ![Scheduled Messages](img/ScheduledMessage.jpg) |
+| Process same-key messages in order | Delayed message delivery |
+
+### Messaging Patterns
+
+| Token Bucket | Pub/Sub |
+|:---:|:---:|
+| ![Token Bucket](img/TokenBucket.jpg) | ![Pub/Sub](img/PubSub.jpg) |
+| Dynamic concurrency control | Real-time broadcast messaging |
+
+### Routing Patterns
+
+| Content-Based Routing | Topic Routing |
+|:---:|:---:|
+| ![Content-Based Routing](img/content-based-routing.jpg) | ![Topic Routing](img/Topic%20Routing.jpg) |
+| Route by message content | Route by topic hierarchy |
+
+| Key Routing | Request/Reply |
+|:---:|:---:|
+| ![Key Routing](img/Key%20Routing.jpg) | ![Request/Reply](img/RequestReply.jpg) |
+| Route by key pattern | Synchronous request-response |
+
+### Error Handling
+
+| Dead Letter Queue (DLQ) |
+|:---:|
+| ![DLQ](img/DLQ.jpg) |
+| Handle failed messages gracefully |
 
 ---
 

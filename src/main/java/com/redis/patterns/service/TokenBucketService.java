@@ -41,6 +41,7 @@ public class TokenBucketService implements CommandLineRunner {
 
     // Redis keys for concurrency control
     private static final String RUNNING_PREFIX = "token-bucket:running:";
+    private static final String COMPLETED_PREFIX = "token-bucket:completed:";
     private static final String CONFIG_KEY = "token-bucket:config";
 
     // Log lists for submissions and completions
@@ -221,6 +222,9 @@ public class TokenBucketService implements CommandLineRunner {
 
             jedis.xadd(DONE_STREAM, XAddParams.xAddParams(), doneFields);
 
+            // Increment completed counter for this job type
+            jedis.incr(COMPLETED_PREFIX + jobType);
+
             // Add to completion log
             String logEntry = String.format("[%s] %s %s completed by worker-%d",
                 Instant.now().toString().substring(11, 19), jobType.toUpperCase(), shortJobId(jobId), workerId);
@@ -341,9 +345,10 @@ public class TokenBucketService implements CommandLineRunner {
     public void clearAllStreams() {
         try (var jedis = jedisPool.getResource()) {
             jedis.del(JOB_STREAM, DONE_STREAM, PROGRESS_STREAM, SUBMIT_LOG, COMPLETE_LOG);
-            // Reset running counters
+            // Reset running and completed counters
             for (JobType type : JobType.values()) {
                 jedis.del(RUNNING_PREFIX + type.name);
+                jedis.del(COMPLETED_PREFIX + type.name);
             }
             // Recreate consumer group
             try {
@@ -379,6 +384,9 @@ public class TokenBucketService implements CommandLineRunner {
             // Get current running counts per type
             for (JobType type : JobType.values()) {
                 result.put(type.name, getCurrentRunning(type.name, jedis));
+                // Also return completed counts
+                String completedValue = jedis.get(COMPLETED_PREFIX + type.name);
+                result.put(type.name + "_completed", completedValue != null ? Integer.parseInt(completedValue) : 0);
             }
         }
         return result;
