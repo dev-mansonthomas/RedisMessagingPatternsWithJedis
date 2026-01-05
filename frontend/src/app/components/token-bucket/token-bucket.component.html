@@ -1,0 +1,182 @@
+<div class="token-bucket-container">
+  <div class="page-header">
+    <h1>🪣 Token Bucket - Dynamic Concurrency Control</h1>
+    <p class="subtitle">Limit parallel tasks per job type to protect external systems (payment gateway, SMTP, CPU-intensive exports)</p>
+  </div>
+
+  <div class="main-content">
+    <!-- Left: Job Types Configuration -->
+    <div class="form-section">
+      <div class="panel jobs-panel">
+        <div class="panel-header">
+          <h3>📋 Job Types & Limits</h3>
+          <button class="clear-btn" (click)="clearAll()">Clear All</button>
+        </div>
+
+        <div class="job-types-list">
+          @for (jt of jobTypes(); track jt.name) {
+            <div class="job-type-card" [style.border-left-color]="jt.color">
+              <div class="job-type-header">
+                <span class="job-icon">{{ jt.icon }}</span>
+                <span class="job-label">{{ jt.label }}</span>
+              </div>
+
+              <div class="processing-time">
+                <span class="time-icon">⏱️</span>
+                <span class="time-label">Processing:</span>
+                <span class="time-value">{{ jt.processingTime }}</span>
+              </div>
+
+              <div class="concurrency-control">
+                <label>Max Concurrent:</label>
+                <div class="slider-row">
+                  <input type="range" [min]="1" [max]="6" [value]="jt.maxConcurrency"
+                         (input)="updateMaxConcurrency(jt, +$any($event.target).value)">
+                  <span class="slider-value">{{ jt.maxConcurrency }}</span>
+                </div>
+              </div>
+
+              <div class="running-indicator">
+                <span class="running-label">Running:</span>
+                <div class="running-bar">
+                  @for (i of [].constructor(jt.maxConcurrency); track $index) {
+                    <div class="slot" [class.active]="$index < jt.running" [style.background-color]="$index < jt.running ? jt.color : ''"></div>
+                  }
+                </div>
+                <span class="running-count">{{ jt.running }}/{{ jt.maxConcurrency }}</span>
+              </div>
+
+              <div class="job-count">
+                <label>Jobs to submit:</label>
+                <span class="count-badge" [style.background-color]="jt.color">{{ jt.jobCount }}</span>
+              </div>
+            </div>
+          }
+        </div>
+
+        <button class="submit-btn" (click)="submitAllJobs()" [disabled]="isSubmitting()">
+          {{ isSubmitting() ? 'Submitting...' : 'Submit All Jobs (300 total)' }}
+        </button>
+
+        @if (submitMessage()) {
+          <div class="message" [class.success]="isSuccess()" [class.error]="!isSuccess()">
+            {{ submitMessage() }}
+          </div>
+        }
+      </div>
+    </div>
+
+    <!-- Right: Real-time Concurrency Chart -->
+    <div class="chart-section">
+      <div class="panel chart-panel">
+        <div class="panel-header">
+          <h3>📊 Concurrent Jobs (Real-time)</h3>
+          <span class="refresh-badge">⚡ 100ms</span>
+        </div>
+
+        <div class="chart-container">
+          @for (jt of jobTypes(); track jt.name) {
+            <div class="chart-row">
+              <div class="chart-label">
+                <span class="chart-icon">{{ jt.icon }}</span>
+                <span class="chart-type">{{ jt.label }}</span>
+              </div>
+              <div class="chart-bar-container">
+                <div class="chart-bar-bg">
+                  @for (i of [0,1,2,3,4,5]; track $index) {
+                    <div class="chart-slot"
+                         [class.active]="$index < getRunningCount(jt.name)"
+                         [class.over-limit]="$index >= jt.maxConcurrency"
+                         [style.background-color]="$index < getRunningCount(jt.name) ? jt.color : ''"></div>
+                  }
+                </div>
+                <div class="chart-limit-marker" [style.left.%]="(jt.maxConcurrency / 6) * 100">
+                  <span class="limit-label">max</span>
+                </div>
+              </div>
+              <div class="chart-value">
+                <span class="current" [style.color]="jt.color">{{ getRunningCount(jt.name) }}</span>
+                <span class="separator">/</span>
+                <span class="max">{{ jt.maxConcurrency }}</span>
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logs Section -->
+  <div class="logs-section">
+    <div class="log-panel submitted">
+      <div class="log-header">
+        <span class="log-icon">📤</span>
+        <span class="log-title">Submitted Jobs</span>
+        <span class="log-count">{{ submitLogs().length }}</span>
+      </div>
+      <div class="log-content">
+        @for (log of submitLogs(); track $index) {
+          <div class="log-entry submitted">{{ log }}</div>
+        }
+        @if (submitLogs().length === 0) {
+          <div class="log-empty">No jobs submitted yet</div>
+        }
+      </div>
+    </div>
+
+    <div class="log-panel completed">
+      <div class="log-header">
+        <span class="log-icon">✅</span>
+        <span class="log-title">Completed Jobs</span>
+        <span class="log-count">{{ completeLogs().length }}</span>
+      </div>
+      <div class="log-content">
+        @for (log of completeLogs(); track $index) {
+          <div class="log-entry completed">{{ log }}</div>
+        }
+        @if (completeLogs().length === 0) {
+          <div class="log-empty">No jobs completed yet</div>
+        }
+      </div>
+    </div>
+  </div>
+
+  <!-- Explanation Section -->
+  <div class="explanation-section">
+    <div class="explanation-blocks">
+      <div class="explanation-block">
+        <div class="block-title">📥 1. Submit Jobs</div>
+        <div class="block-code">
+          <div class="code-line"><span class="function">XADD</span> token-bucket.jobs.v1 *</div>
+          <div class="code-line">&nbsp;&nbsp;type <span class="string">"payment"</span></div>
+          <div class="code-line">&nbsp;&nbsp;jobId <span class="string">"payment-123"</span></div>
+        </div>
+      </div>
+      <div class="explanation-block">
+        <div class="block-title">🔐 2. Atomic Token Acquisition (Lua)</div>
+        <div class="block-code">
+          <div class="code-line">current = <span class="function">GET</span> token-bucket:running:payment</div>
+          <div class="code-line">if current >= maxConcurrency then</div>
+          <div class="code-line">&nbsp;&nbsp;return <span class="number">0</span> <span class="comment">// No token</span></div>
+          <div class="code-line"><span class="function">INCR</span> token-bucket:running:payment</div>
+          <div class="code-line">return <span class="number">1</span> <span class="comment">// Token acquired</span></div>
+        </div>
+      </div>
+      <div class="explanation-block">
+        <div class="block-title">⚙️ 3. Worker Processing</div>
+        <div class="block-code">
+          <div class="code-line">msg = <span class="function">XREADGROUP</span> token-bucket.jobs.v1</div>
+          <div class="code-line"><span class="function">EVAL</span> acquire_token_script</div>
+          <div class="code-line"><span class="function">Thread.sleep</span>(4000) <span class="comment">// processing</span></div>
+          <div class="code-line"><span class="function">XADD</span> token-bucket.jobs.v1.done * ...</div>
+          <div class="code-line"><span class="function">DECR</span> token-bucket:running:payment</div>
+        </div>
+      </div>
+    </div>
+    <div class="explanation-note">
+      <strong>⚡ Result:</strong>
+      Jobs are processed respecting per-type concurrency limits. Payment: max 3, Email: max 2, CSV: max 1 (protecting external APIs and CPU).
+    </div>
+  </div>
+</div>
+

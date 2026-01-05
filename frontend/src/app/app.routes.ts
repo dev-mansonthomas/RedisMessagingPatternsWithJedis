@@ -47,6 +47,10 @@ export const routes: Routes = [
     loadComponent: () => import('./components/per-key-serialized/per-key-serialized.component').then(m => m.PerKeySerializedComponent)
   },
   {
+    path: 'token-bucket',
+    loadComponent: () => import('./components/token-bucket/token-bucket.component').then(m => m.TokenBucketComponent)
+  },
+  {
     path: '**',
     redirectTo: '/dlq'
   }

@@ -16,9 +16,9 @@ redis:
   password: ${REDIS_PASSWORD:}
   timeout: ${REDIS_TIMEOUT:2000}
   pool:
-    max-total: ${REDIS_POOL_MAX_TOTAL:50}
-    max-idle: ${REDIS_POOL_MAX_IDLE:20}
-    min-idle: ${REDIS_POOL_MIN_IDLE:5}
+    max-total: ${REDIS_POOL_MAX_TOTAL:100}
+    max-idle: ${REDIS_POOL_MAX_IDLE:50}
+    min-idle: ${REDIS_POOL_MIN_IDLE:10}
     max-wait-millis: ${REDIS_POOL_MAX_WAIT:3000}
     test-on-borrow: true
     test-on-return: false
