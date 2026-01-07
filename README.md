@@ -12,7 +12,7 @@
 [![Angular](https://img.shields.io/badge/Angular-21-DD0031?style=for-the-badge&logo=angular&logoColor=white)](https://angular.io)
 
 
-[Patterns](#-implemented-patterns) • [Getting Started](#-getting-started) • [Key Files](#-key-files-to-explore) • [Architecture](#-architecture)
+[Patterns](#-implemented-patterns) • [Run the Project](#-run-the-project) • [Key Files](#-key-files-to-explore) • [Architecture](#-architecture)
 
 </div>
 
@@ -21,12 +21,12 @@
 ## 📋 Table of Contents
 
 - [What is This Project?](#-what-is-this-project)
+- [Run the Project](#-run-the-project)
 - [Screenshots](#️-screenshots)
 - [Key Concepts](#-key-concepts-for-beginners)
 - [Implemented Patterns](#-implemented-patterns)
 - [Technology Stack](#-technology-stack)
-- [Prerequisites](#-prerequisites)
-- [Getting Started](#-getting-started)
+- [Development Setup](#-development-setup)
 - [Key Files to Explore](#-key-files-to-explore)
 - [Architecture](#-architecture)
 - [Contributing](#-contributing)
@@ -46,6 +46,61 @@ This project is a **learning resource** that demonstrates enterprise messaging p
 - **Demonstration code** with Redis Functions (Lua), Jedis, and Java 21 Virtual Threads
 
 Whether you're new to messaging systems or Redis, this project helps you understand how to build reliable, scalable message-driven applications.
+
+---
+
+## 🚀 Run the Project
+
+The easiest way to run the project is with **Docker Compose**. This starts all services (Redis, Backend, Frontend, Redis Insight) with a single command.
+
+### Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/your-repo/redis-messaging-patterns.git
+cd redis-messaging-patterns
+
+# Start all services
+./launch-docker.sh
+```
+
+### Access URLs
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| **Frontend** | http://localhost:4200 | Interactive web UI |
+| **Backend API** | http://localhost:8080/api | REST API endpoints |
+| **Redis Insight** | http://localhost:5540 | Redis GUI (add database: `redis:6379`) |
+| **Redis** | localhost:6379 | Redis server |
+
+### Docker Commands
+
+```bash
+# Start all services (build + logs)
+./launch-docker.sh
+
+# Stop all services
+./stop-docker.sh
+
+# Clean up (remove containers, images, volumes)
+./clean-docker.sh
+```
+
+### Manual Docker Compose
+
+```bash
+# Start in background
+docker-compose up -d --build
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+
+# Stop and remove volumes
+docker-compose down -v
+```
 
 ---
 
@@ -194,9 +249,11 @@ Whether you're new to messaging systems or Redis, this project helps you underst
 
 ---
 
-## 📦 Prerequisites
+## 🛠️ Development Setup
 
-Before starting, you need:
+For development with hot-reload and debugging capabilities, run services separately.
+
+### Prerequisites
 
 | Tool | Version | Purpose |
 |------|---------|---------|
@@ -205,10 +262,6 @@ Before starting, you need:
 | **Maven** | 3.8+ | Build Java project |
 | **Node.js** | 18+ | Run Angular frontend |
 | **npm** | 9+ | Install frontend dependencies |
-
----
-
-## 🚀 Getting Started
 
 ### Step 1: Start Redis
 
@@ -228,7 +281,7 @@ docker exec redis-messaging redis-cli PING
 mvn clean package -DskipTests
 java -jar target/redis-messaging-patterns-1.0.0.jar
 
-# Or with Maven directly
+# Or with Maven directly (hot-reload with spring-boot-devtools)
 mvn spring-boot:run
 ```
 
@@ -244,7 +297,7 @@ npm install
 npm start
 ```
 
-Frontend runs on **http://localhost:4200**
+Frontend runs on **http://localhost:4200** with hot-reload enabled.
 
 ---
 

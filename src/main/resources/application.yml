@@ -57,3 +57,13 @@ websocket:
   message-buffer-size: 8192
   send-time-limit: 20000
 
+# Actuator Configuration (for Docker health checks)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+

@@ -1,0 +1,104 @@
+# =============================================================================
+# Redis Messaging Patterns - Docker Compose
+# =============================================================================
+# Usage:
+#   docker-compose up -d          # Start all services
+#   docker-compose up -d --build  # Rebuild and start
+#   docker-compose logs -f        # View logs
+#   docker-compose down           # Stop all services
+#   docker-compose down -v        # Stop and remove volumes
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis Server (8.4+ required for XREADGROUP CLAIM)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:8.4-alpine
+    container_name: redis-messaging-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - redis-messaging-network
+
+  # ---------------------------------------------------------------------------
+  # Backend - Spring Boot Application
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: redis-messaging-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_POOL_MAX_TOTAL=100
+      - REDIS_POOL_MAX_IDLE=50
+      - REDIS_POOL_MIN_IDLE=10
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - redis-messaging-network
+
+  # ---------------------------------------------------------------------------
+  # Frontend - Angular Application (served via Nginx)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: redis-messaging-frontend
+    ports:
+      - "4200:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - redis-messaging-network
+
+  # ---------------------------------------------------------------------------
+  # Redis Insight - GUI for Redis
+  # ---------------------------------------------------------------------------
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: redis-messaging-insight
+    ports:
+      - "5540:5540"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - redis-messaging-network
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  redis-messaging-network:
+    driver: bridge
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  redis-data:
+    driver: local
+
