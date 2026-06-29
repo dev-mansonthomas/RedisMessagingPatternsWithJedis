@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { WebSocketService } from '../../services/websocket.service';
 import { Subscription } from 'rxjs';
+import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
+import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 
 interface PatternSubscriber {
   name: string;
@@ -22,7 +24,7 @@ interface ReceivedMessage {
 @Component({
   selector: 'app-pubsub-topic-routing',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './pubsub-topic-routing.component.html',
   styleUrl: './pubsub-topic-routing.component.scss'
@@ -31,6 +33,7 @@ export class PubsubTopicRoutingComponent implements OnInit, OnDestroy {
   private http = inject(HttpClient);
   private wsService = inject(WebSocketService);
   private cdr = inject(ChangeDetectorRef);
+  diagrams = inject(DiagramDefinitionsService);
   private apiUrl = 'http://localhost:8080/api/pubsub-topic-routing';
   private subscription?: Subscription;
   private wsStatusSub?: Subscription;

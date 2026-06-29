@@ -177,6 +177,13 @@
       After <strong>2 delivery attempts</strong> (max_deliveries=2), <code>read_claim_or_dlq</code>
       automatically routes the message to <code>payments.incoming.v1:dlq</code>.
     </div>
+
+    <!-- Architecture Diagram -->
+    <app-mermaid-diagram
+      title="View Architecture & Sequence Diagrams"
+      [architectureDiagram]="diagrams.contentBasedRouting.architecture"
+      [sequenceDiagram]="diagrams.contentBasedRouting.sequence">
+    </app-mermaid-diagram>
   </div>
 </div>
 

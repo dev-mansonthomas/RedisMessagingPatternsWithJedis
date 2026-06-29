@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { Subscription } from 'rxjs';
 import { WebSocketService } from '../../services/websocket.service';
+import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
+import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 
 interface RequestItem {
   itemId: string;
@@ -30,7 +32,7 @@ interface Response {
 @Component({
   selector: 'app-request-reply',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container">
@@ -167,6 +169,13 @@ interface Response {
         </div>
       </div>
 
+      <!-- Architecture Diagram -->
+      <app-mermaid-diagram
+        title="View Architecture & Sequence Diagrams"
+        [architectureDiagram]="diagrams.requestReply.architecture"
+        [sequenceDiagram]="diagrams.requestReply.sequence">
+      </app-mermaid-diagram>
+
       <div class="info-box">
         <div class="info-header">
           <span class="info-icon">ℹ️</span>
@@ -266,6 +275,7 @@ export class RequestReplyComponent implements OnInit, OnDestroy {
   private http = inject(HttpClient);
   private wsService = inject(WebSocketService);
   private cdr = inject(ChangeDetectorRef);
+  diagrams = inject(DiagramDefinitionsService);
   private wsSubscription?: Subscription;
 
   isSending = false;

@@ -1,13 +1,15 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
 import { DlqConfigComponent } from '../dlq-config/dlq-config.component';
 import { DlqActionsComponent } from '../dlq-actions/dlq-actions.component';
+import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
+import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 
 @Component({
   selector: 'app-dlq',
   standalone: true,
-  imports: [CommonModule, StreamViewerComponent, DlqConfigComponent, DlqActionsComponent],
+  imports: [CommonModule, StreamViewerComponent, DlqConfigComponent, DlqActionsComponent, MermaidDiagramComponent],
   template: `
     <div class="dlq-container">
       <div class="page-header">
@@ -50,6 +52,13 @@ import { DlqActionsComponent } from '../dlq-actions/dlq-actions.component';
             </app-stream-viewer>
           </div>
         </div>
+
+        <!-- Architecture Diagram -->
+        <app-mermaid-diagram
+          title="View Architecture & Sequence Diagrams"
+          [architectureDiagram]="diagrams.dlq.architecture"
+          [sequenceDiagram]="diagrams.dlq.sequence">
+        </app-mermaid-diagram>
 
         <!-- DLQ Pattern Explanation -->
         <div class="explanation-section">
@@ -296,4 +305,6 @@ import { DlqActionsComponent } from '../dlq-actions/dlq-actions.component';
     }
   `]
 })
-export class DlqComponent {}
+export class DlqComponent {
+  diagrams = inject(DiagramDefinitionsService);
+}
