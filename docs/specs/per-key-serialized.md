@@ -17,14 +17,15 @@ the same `orderId` at once), without a global lock.
 - `DELETE /per-key-serialized/clear`.
 
 ## Flow
-3 Virtual Thread workers share one group. Per job: try `SET running:order:{orderId} NX PX 30000`.
-- Lock acquired → process (~4s) → copy to worker's done stream → `XACK` → release lock.
-- Lock held by another → **skip** (don't block); leave message pending. `XAUTOCLAIM` (idle 500ms)
-  re-delivers it later, by which time the holder has released the lock.
+3 Virtual Thread workers share one group. Per job: try `SET running:order:{orderId} NX PX 30000`
+(value = the messageId, used as an ownership token).
+- Lock acquired → process (~4s) → copy to worker's done stream → `XACK` → release the lock via
+  `FCALL release_lock` (compare-and-delete: deletes only if the lock still holds **our** token, so a
+  worker can never delete a lock another worker re-acquired after a TTL expiry).
+- Lock held by another → **skip** (don't block); leave message pending. `XAUTOCLAIM` (idle 10s,
+  above the ~4s processing time) re-delivers it later, by which time the holder has released the lock.
 
 ## Acceptance
 - Two jobs with the same `orderId` never run concurrently; they serialize.
 - Jobs with different `orderId`s run in parallel across the 3 workers.
-
-## Inferred — verify
-Whether the lock is explicitly `DEL`'d on success or relies on the 30s TTL.
+- A lock is only ever released by its owner (compare-and-delete), never by a different worker.

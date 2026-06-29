@@ -24,7 +24,8 @@
 ┌────────────────────────────────────────▼───────────────────────────────────────────┐
 │  Redis 8.4-alpine (AOF on)                                                           │
 │  Streams + Consumer Groups · Pub/Sub channels · Sorted Sets · Hashes · String locks  │
-│  Functions library `stream_utils`: read_claim_or_dlq · request · response · route_message │
+│  Functions library `stream_utils`: read_claim_or_dlq · request · response · route_message  │
+│                                    · acquire_token · release_token · release_lock          │
 └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -34,8 +35,9 @@ Containers (`docker-compose.yml`): `redis`, `backend`, `frontend` (nginx), `redi
 
 - **`config/RedisConfig` + `RedisProperties`** — builds the `JedisPool` (pool sizes/timeouts from
   `application.yml`, overridable by `REDIS_*` env vars). All services borrow/return connections.
-- **`RedisLuaFunctionLoader`** — on startup loads `lua/stream_utils.lua` via `FUNCTION LOAD REPLACE`
-  and verifies the 4 functions are registered.
+- **`RedisLuaFunctionLoader`** — on startup loads `lua/stream_utils.lua` (classpath-first so it works
+  inside a packaged jar, with a filesystem fallback for local dev) via `FUNCTION LOAD REPLACE`, then
+  verifies **each** of the 7 expected functions is registered via `FUNCTION LIST` (fail-fast).
 - **`RedisStreamListenerService`** — the live-view engine. One **Virtual Thread per monitored
   stream** runs `XREAD BLOCK 1000`; on new entries it broadcasts `MESSAGE_PRODUCED`. Detects messages
   regardless of source (API, worker, or RedisInsight). `StreamMonitorService` is the deprecated
@@ -44,11 +46,14 @@ Containers (`docker-compose.yml`): `redis`, `backend`, `frontend` (nginx), `redi
   sync). Broadcasts `DLQEvent` and `PubSubEvent`.
 - **`KeyspaceNotificationConfig` + `KeyspaceNotificationListener`** — enables `notify-keyspace-events Ex`
   and subscribes to `__keyevent@0__:expired` to drive Request/Reply **timeouts**.
-- **`RedisPubSubConfig` + `RedisPubSubListener`** — blocking `SUBSCRIBE`/`PSUBSCRIBE` on daemon threads
-  for the two pub/sub patterns.
+- **`RedisPubSubConfig` + `RedisPubSubListener`** — blocking `SUBSCRIBE`/`PSUBSCRIBE` for the two
+  pub/sub patterns, each on a **dedicated connection** (built from `RedisProperties`, not borrowed
+  from the shared pool) inside a **reconnect loop** with backoff, stopped cleanly via `@PreDestroy`.
 - **`config/WebSocketConfig` + `websocket/DLQEventWebSocketHandler`** — registers `/ws/dlq-events`
-  (→ `/api/ws/dlq-events`) with SockJS fallback and `allowedOriginPatterns("*")`.
-- **`config/CorsConfig`** — permits all origins/methods/headers (demo only).
+  (→ `/api/ws/dlq-events`) with SockJS fallback and an explicit origin **allow-list**
+  (`app.cors.allowed-origins`, same source as CORS).
+- **`config/CorsConfig`** — explicit origin allow-list (default local frontend/backend, overridable
+  via `app.cors.allowed-origins` / `APP_CORS_ALLOWED_ORIGINS`); all methods/headers, credentials on.
 
 ## Thread model
 
@@ -58,8 +63,8 @@ Containers (`docker-compose.yml`): `redis`, `backend`, `frontend` (nginx), `redi
 | Work Queue | 4 Virtual Thread workers | poll 100ms, `FCALL read_claim_or_dlq` |
 | Fan-Out | 4 Virtual Thread workers (1 group each) | poll 100ms, `FCALL read_claim_or_dlq` |
 | Content-Based Routing | 1 Virtual Thread router | poll 500ms, `FCALL read_claim_or_dlq` |
-| Per-Key Serialized | 3 Virtual Thread workers | poll 500ms, `SET NX` lock + `XAUTOCLAIM` |
-| Token Bucket | 18 Virtual Thread workers (6/type) | poll 10ms, Lua acquire-token `EVAL` |
+| Per-Key Serialized | 3 Virtual Thread workers | poll 500ms, `SET NX` lock + `XAUTOCLAIM` (idle 10s); owner-checked `FCALL release_lock` |
+| Token Bucket | 18 Virtual Thread workers (6/type) | poll 10ms, `FCALL acquire_token` / `release_token` |
 | Scheduled Messages | 1 Virtual Thread scheduler | poll 500ms, `ZRANGEBYSCORE` |
 | Keyspace timeouts | 1 Virtual Thread | `psubscribe __keyevent@0__:expired` |
 | Pub/Sub subscribers | daemon threads / cached pool | `SUBSCRIBE` / `PSUBSCRIBE` |
@@ -73,7 +78,10 @@ Jedis is borrowed per-operation from the pool; blocking listeners hold a dedicat
 | `read_claim_or_dlq` | `[stream, dlq]` | `[group, consumer, minIdle, count, maxDeliver]` | `XPENDING` → route over-delivered msgs to DLQ (`XCLAIM`+`XADD`+`XACK`), then `XREADGROUP ... CLAIM` (Redis 8.4+) to claim idle + read new. Returns `[toProcess[], dlqIds[]]`. |
 | `request` | `[timeout_key, shadow_key, stream]` | `[corrId, businessId, respStream, timeoutSec, payload]` | Sets expiring timeout key + shadow metadata, `XADD`s request. Returns msg id. |
 | `response` | `[timeout_key, stream]` | `[corrId, businessId, payload]` | `DEL`s timeout key (cancel timeout), `XADD`s response. Returns msg id. |
-| `route_message` | `[exchange_stream]` | `[routingKey, payload]` | Loads rules from `routing:rules:{stream}`, sorts by priority, Lua-pattern matches, fans out via `XADD` to matched target streams (stop-on-match supported). Returns `[exchangeId, routedTo[], rulesEvaluated, rulesMatched]`. |
+| `route_message` | `[exchange_stream]` | `[routingKey, payload]` | Loads rules from `routing:rules:{stream}`, sorts by priority, Lua-pattern matches (each match wrapped in `pcall` so one malformed rule can't abort the function), fans out via `XADD` to matched target streams (stop-on-match supported). Returns `[exchangeId, routedTo[], rulesEvaluated, rulesMatched]`. |
+| `acquire_token` | `[runningKey]` | `[maxConcurrency]` | Token Bucket: atomic check-and-`INCR` — returns 1 if `running < max` (token taken), else 0. |
+| `release_token` | `[runningKey]` | — | Token Bucket: `DECR` the running counter, **floored at 0** so a redelivery can't drive it negative. |
+| `release_lock` | `[lockKey]` | `[token]` | Per-Key Serialized: compare-and-delete — deletes the lock only if it still holds the caller's `token` (owner-safe release). |
 
 ## Key-naming conventions
 

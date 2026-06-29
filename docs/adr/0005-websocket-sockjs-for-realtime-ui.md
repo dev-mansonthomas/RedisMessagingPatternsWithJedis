@@ -10,9 +10,13 @@ changes via the stream listeners (ADR-0003) and needs a transport to the browser
 
 ## Decision
 
-Expose a raw Spring WebSocket handler at **`/api/ws/dlq-events`** with **SockJS** fallback and
-`allowedOriginPatterns("*")`. Broadcast `DLQEvent`/`PubSubEvent` JSON to all sessions via
-`WebSocketEventService`. The Angular client connects through `sockjs-client`.
+Expose a raw Spring WebSocket handler at **`/api/ws/dlq-events`** with **SockJS** fallback.
+Broadcast `DLQEvent`/`PubSubEvent` JSON to all sessions via `WebSocketEventService`. The Angular
+client connects through `sockjs-client`.
+
+> **Update (2026-06-29, security review):** the handshake origin was changed from
+> `allowedOriginPatterns("*")` to an explicit `setAllowedOrigins(...)` allow-list driven by
+> `app.cors.allowed-origins`, consistent with `CorsConfig` (see ADR-0008 update).
 
 ## Consequences
 

@@ -1,7 +1,7 @@
 # Spec — Token Bucket (per-type concurrency cap)
 
 Route `/token-bucket` · `TokenBucketController` (`/api/token-bucket`) · `TokenBucketService` ·
-inline Lua acquire script.
+registered Lua functions `acquire_token` / `release_token` (in `stream_utils.lua`).
 
 ## Goal
 Cap the number of **concurrently running** jobs per job type (a concurrency limiter / token bucket),
@@ -22,14 +22,14 @@ PAYMENT (max 3, ~4s) · EMAIL (max 2, ~4s) · CSV (max 1, ~10s).
   · `DELETE /clear` · `GET /logs` · `GET /progress`.
 
 ## Flow
-18 Virtual Thread workers (6/type) poll every 10ms. Per job: Lua `ACQUIRE_TOKEN` — if
-`running < max` then `INCR running` return 1 else return 0. On token: progress STARTED → sleep
-type duration → progress COMPLETED → `INCR completed` → log → `XACK` → decrement running. No token →
-skip and retry.
+18 Virtual Thread workers (6/type) poll every 10ms. Per job: `FCALL acquire_token` (KEYS=`running:{type}`,
+ARGS=`max`) — if `running < max` then `INCR running` return 1 else return 0. On token: progress STARTED
+→ sleep type duration → progress COMPLETED → `INCR completed` → log → `XACK` → release token via
+`FCALL release_token` (`DECR`, floored at 0). No token → skip and retry. Idle messages are reclaimed
+via `XAUTOCLAIM` with an idle threshold (15s) **above** the longest job, so busy workers' in-flight
+messages aren't stolen and double-processed.
 
 ## Acceptance
 - Running count for a type never exceeds its configured `maxConcurrency`.
 - Lowering `maxConcurrency` at runtime throttles new starts.
-
-## Inferred — verify
-Where `running` is decremented (in worker after completion) and the EVAL exact body.
+- The running counter never goes negative (release is floored at 0).

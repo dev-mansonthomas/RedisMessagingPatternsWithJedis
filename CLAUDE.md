@@ -41,7 +41,7 @@ observability over hardening.
 ## Layout
 
 - `src/main/java/com/redis/patterns/` — backend: `controller/`, `service/`, `config/`, `dto/`, `websocket/`
-- `lua/stream_utils.lua` — all registered Redis Functions (`read_claim_or_dlq`, `request`, `response`, `route_message`)
+- `lua/stream_utils.lua` — all 7 registered Redis Functions (`read_claim_or_dlq`, `request`, `response`, `route_message`, `acquire_token`, `release_token`, `release_lock`)
 - `frontend/src/app/components/<pattern>/` — one Angular component per pattern page
 - `frontend/src/app/services/` — `redis-api`, `websocket`, `stream-refresh`, `routing-rules`, `diagram-definitions`
 - `docs/` — agent-facing docs (this map points into them)
@@ -75,4 +75,6 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
 - **Live UI updates** come from `RedisStreamListenerService` (one Virtual Thread per monitored
   stream, `XREAD BLOCK 1000`) broadcasting `DLQEvent`/`PubSubEvent` over WebSocket.
 - **Several services clear their demo streams on startup** (`@Order`-sequenced runners) for a clean slate.
-- **No auth, CORS is `*`** — acceptable for a local demo, not for deployment (see ADR-0008 / TODO).
+- **No auth** (by design — ADR-0008). **CORS and WebSocket origins are restricted to an explicit
+  allow-list** (`CorsConfig` / `WebSocketConfig`, driven by `app.cors.allowed-origins`, default the
+  local frontend/backend). Still not deployment-ready (no auth/TLS) — see ADR-0008 / TODO.
