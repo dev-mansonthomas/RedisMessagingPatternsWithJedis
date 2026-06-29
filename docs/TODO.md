@@ -12,8 +12,10 @@
   `git rm --cached .env`, and ship a `.env.example`.
 - 🟠 **No authentication/authorization** on any REST or WebSocket endpoint (ADR-0008). Acceptable
   for a localhost demo; a blocker before any network exposure.
-- 🟠 **CORS and WebSocket origins are `*`** (`CorsConfig`, `WebSocketConfig`). Lock to an allow-list
-  before deployment.
+- ✅ **CORS and WebSocket origins locked to an explicit allow-list** (`CorsConfig`, `WebSocketConfig`,
+  `app.cors.allowed-origins`, default local frontend/backend) — *done 2026-06-29, PR #3*. Previously `*`.
+- ✅ **Mermaid diagram rendering sanitized** — `securityLevel: 'antiscript'` (DOMPurify on the SVG
+  before the `innerHTML` sink) — *done 2026-06-29, PR #3*.
 - 🟠 **Redis runs with no password by default** (`REDIS_PASSWORD` empty in compose/env). Set a
   password + consider ACLs/TLS for any non-local use (see `redis-security`).
 - 🟡 `frontend/Dockerfile` adds `chmod -R a+r` on the nginx web root — benign (public static assets).
@@ -27,30 +29,28 @@
   label-has-associated-control`, `click-events-have-key-events` / `interactive-supports-focus`
   (a11y), `@typescript-eslint/no-explicit-any`, `@angular-eslint/no-empty-lifecycle-method`.
   8 are auto-fixable (`npm run lint -- --fix`).
-- 🟠 **Backend cannot be built/tested in this VM** — Java 21 + Maven are not installed; only the
-  Docker multi-stage build path works. See the toolchain inventory below; the list to add to
-  `scripts/vm-provision.sh` will be relayed to the host.
+- ✅ **Backend builds & runs locally in this VM** — *resolved 2026-06-29*: Java 21 + Maven 3.9.16
+  are now installed (host VM provisioning), so `mvn compile`/`mvn package` work directly; the Docker
+  multi-stage path also works. Lua lint available via `luacheck`.
 
-### Toolchain inventory (required vs VM, 2026-06-26)
+### Toolchain inventory (required vs VM, updated 2026-06-29)
 
 | Tool | Required (source) | VM | Status |
 |------|-------------------|----|--------|
-| JDK | 21 (`pom.xml`, Dockerfile temurin-21) | — | 🔴 MISSING |
-| Maven | 3.9 (Dockerfile `maven:3.9`) | — | 🔴 MISSING |
-| Node | 22 (frontend Dockerfile `node:22-alpine`) | 24.16.0 | 🟠 wrong major (builds; not pinned) |
-| Lua + lua-language-server | dev-only (`.luarc.json`) | — | 🟡 MISSING (edit/lint only; not needed at runtime) |
+| JDK | 21 (`pom.xml`, Dockerfile temurin-21) | 21.0.11 | ✅ installed |
+| Maven | 3.9 (Dockerfile `maven:3.9`) | 3.9.16 | ✅ installed |
+| Node | 22 (frontend Dockerfile `node:22-alpine`) | 24.16.0 | 🟡 runtime VM is 24; build image still `node:22-alpine` (builds fine; not pinned) |
+| luacheck | dev-only Lua lint (`.luarc.json`) | 1.2.0 (Lua 5.1) | ✅ installed |
 | redis-cli | client for `lua/load.sh` | 7.0.15 | ✅ ok as client; local *server* must be 8.4+ (use Docker) |
-| Docker / Compose | modern | 29.5.2 / v5.1.4 | ✅ |
+| Docker / Compose | modern (`docker compose`, no v1 `docker-compose`) | 29.5.2 / v5.1.4 | ✅ |
 | npm / git | bundled / any | 11.13.0 / 2.43.0 | ✅ |
 
 No multi-version needs (single Java 21, single Node line; no `.nvmrc`/`.tool-versions`/Python/Go/PHP/TF).
-
-**For `scripts/vm-provision.sh` (relay to host):** `openjdk-21` (Temurin JDK) + `maven` 3.9.x
-(🔴 unblocks local backend build/test); optionally `lua5.4` + `lua-language-server` (🟡 dev). Node
-parity (🟠): pin the repo (`engines`/`.nvmrc`) or bump the frontend Dockerfile to `node:24-alpine`.
-- 🟡 **`TokenBucketService.java:165`** changed `StreamEntryID.UNRECEIVED_ENTRY` →
-  `StreamEntryID.XREADGROUP_UNDELIVERED_ENTRY` (Jedis 7 API). Correct in principle but **not
-  compile-verified here** (no Maven). → Confirm via `./launch-docker.sh --build`.
+Node parity (🟡): pin the repo (`engines`/`.nvmrc`) or bump the frontend Dockerfile build stage to
+`node:24-alpine` to match the runtime VM.
+- ✅ **`TokenBucketService` `XREADGROUP_UNDELIVERED_ENTRY`** (Jedis 7 API) — compile-verified via the
+  Docker build; the service also now uses registered `FCALL acquire_token`/`release_token` instead of
+  inline `EVAL`.
 
 ## Quality / cleanup (from `/code-review` of the working diff)
 
@@ -65,6 +65,16 @@ parity (🟠): pin the repo (`engines`/`.nvmrc`) or bump the frontend Dockerfile
 - 🟡 The in-flight mermaid feature repeats the same `diagrams = inject(DiagramDefinitionsService)`
   + identical `<app-mermaid-diagram>` block across ~11 components. Acceptable, but a shared wrapper
   or a small base could reduce duplication.
+
+## Code review & security
+
+- ✅ **First full `/code-review`** (2026-06-29) — findings tracked in
+  [`specs/code-review-findings.md`](specs/code-review-findings.md); P1/P2 fixes shipped in PR #2
+  (Redis/pattern correctness, dedicated pub/sub connections, CORS allow-list, Lua loader hardening,
+  inline `EVAL` → registered functions). Remaining follow-up: extract a typed decoder for `fcall`
+  replies (readability of the critical paths).
+- ✅ **First full `/security-review`** (2026-06-29) — no exploitable vuln beyond the by-design no-auth
+  posture; the two concrete origin/sink gaps (WebSocket origin, Mermaid `innerHTML`) fixed in PR #3.
 
 ## Docs
 
