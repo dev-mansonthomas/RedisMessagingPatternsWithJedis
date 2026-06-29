@@ -38,3 +38,6 @@ target/
 
 /tmp
 /logs/*
+
+### git-pr-merge / git-check output (host tooling)
+debug/
