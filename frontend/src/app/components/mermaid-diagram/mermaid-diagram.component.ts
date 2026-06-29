@@ -136,10 +136,16 @@ export class MermaidDiagramComponent implements OnInit, OnChanges, AfterViewInit
   private initialized = false;
   
   ngOnInit(): void {
+    // 'antiscript' (not 'loose'): mermaid still runs the rendered SVG through
+    // DOMPurify and strips <script>, so the `innerHTML = svg` sink is sanitized,
+    // while HTML labels (<br/>, &nbsp;) used throughout the diagrams keep working.
+    // 'strict' would force htmlLabels off and break those labels. Inputs are
+    // static developer-authored constants today; this is defense-in-depth in case
+    // a diagram ever becomes dynamic.
     mermaid.initialize({
       startOnLoad: false,
       theme: 'default',
-      securityLevel: 'loose',
+      securityLevel: 'antiscript',
       flowchart: { useMaxWidth: true, htmlLabels: true },
       sequence: { useMaxWidth: true }
     });
