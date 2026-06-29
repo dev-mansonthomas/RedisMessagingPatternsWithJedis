@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
 import { StreamRefreshService } from '../../services/stream-refresh.service';
+import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
+import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 
 interface SleepOption {
   label: string;
@@ -22,7 +24,7 @@ interface SleepOption {
 @Component({
   selector: 'app-work-queue',
   standalone: true,
-  imports: [CommonModule, FormsModule, StreamViewerComponent],
+  imports: [CommonModule, FormsModule, StreamViewerComponent, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="work-queue-container">
@@ -112,6 +114,13 @@ interface SleepOption {
           </app-stream-viewer>
         </div>
       </div>
+
+      <!-- Architecture Diagram -->
+      <app-mermaid-diagram
+        title="View Architecture & Sequence Diagrams"
+        [architectureDiagram]="diagrams.workQueue.architecture"
+        [sequenceDiagram]="diagrams.workQueue.sequence">
+      </app-mermaid-diagram>
 
       <!-- How it Works Section -->
       <div class="info-box">
@@ -393,6 +402,7 @@ export class WorkQueueComponent implements OnInit, OnDestroy {
   private http = inject(HttpClient);
   private refreshService = inject(StreamRefreshService);
   private cdr = inject(ChangeDetectorRef);
+  diagrams = inject(DiagramDefinitionsService);
   private apiUrl = 'http://localhost:8080/api/work-queue';
 
   // Production state

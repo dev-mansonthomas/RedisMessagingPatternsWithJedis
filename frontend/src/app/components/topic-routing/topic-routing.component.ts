@@ -5,6 +5,8 @@ import { HttpClient } from '@angular/common/http';
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
 import { StreamRefreshService } from '../../services/stream-refresh.service';
 import { RoutingRulesService, RoutingRule, RoutingMetadata } from '../../services/routing-rules.service';
+import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
+import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 
 interface RoutedStream {
   streamName: string;
@@ -24,7 +26,7 @@ interface RoutingResult {
 @Component({
   selector: 'app-topic-routing',
   standalone: true,
-  imports: [CommonModule, FormsModule, StreamViewerComponent],
+  imports: [CommonModule, FormsModule, StreamViewerComponent, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="topic-routing-container">
@@ -258,6 +260,13 @@ interface RoutingResult {
           </div>
         </div>
       </div>
+
+      <!-- Architecture Diagram -->
+      <app-mermaid-diagram
+        title="View Architecture & Sequence Diagrams"
+        [architectureDiagram]="diagrams.keyRouting.architecture"
+        [sequenceDiagram]="diagrams.keyRouting.sequence">
+      </app-mermaid-diagram>
 
       <!-- Info Box -->
       <div class="info-box">
@@ -887,6 +896,7 @@ export class TopicRoutingComponent implements OnInit, OnDestroy {
   private http = inject(HttpClient);
   private refreshService = inject(StreamRefreshService);
   private rulesService = inject(RoutingRulesService);
+  diagrams = inject(DiagramDefinitionsService);
   private apiUrl = 'http://localhost:8080/api/topic-routing';
 
   // Exchange stream name

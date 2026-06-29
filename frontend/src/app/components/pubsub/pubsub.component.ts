@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { PubsubProducerComponent } from '../pubsub-producer/pubsub-producer.component';
 import { PubsubSubscriberComponent } from '../pubsub-subscriber/pubsub-subscriber.component';
 import { WebSocketService } from '../../services/websocket.service';
+import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
+import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 
 /**
  * Main component for the Pub/Sub messaging pattern demonstration.
@@ -15,7 +17,7 @@ import { WebSocketService } from '../../services/websocket.service';
 @Component({
   selector: 'app-pubsub',
   standalone: true,
-  imports: [CommonModule, PubsubProducerComponent, PubsubSubscriberComponent],
+  imports: [CommonModule, PubsubProducerComponent, PubsubSubscriberComponent, MermaidDiagramComponent],
   template: `
     <div class="pubsub-container">
       <div class="page-header">
@@ -53,6 +55,13 @@ import { WebSocketService } from '../../services/websocket.service';
           </app-pubsub-subscriber>
         </div>
       </div>
+
+      <!-- Architecture Diagram -->
+      <app-mermaid-diagram
+        title="View Architecture & Sequence Diagrams"
+        [architectureDiagram]="diagrams.pubsub.architecture"
+        [sequenceDiagram]="diagrams.pubsub.sequence">
+      </app-mermaid-diagram>
 
       <!-- Pattern Explanation -->
       <div class="explanation-section">
@@ -237,6 +246,7 @@ import { WebSocketService } from '../../services/websocket.service';
 })
 export class PubsubComponent implements OnInit {
   private wsService = inject(WebSocketService);
+  diagrams = inject(DiagramDefinitionsService);
 
   ngOnInit(): void {
     // Connect to WebSocket for real-time message delivery

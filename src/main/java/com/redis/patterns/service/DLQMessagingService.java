@@ -68,8 +68,11 @@ public class DLQMessagingService {
         
         try (var jedis = jedisPool.getResource()) {
             try {
-                // Create group starting from the end of the stream ($)
-                // This means only new messages will be delivered
+                // Create the group at 0-0 (the beginning of the stream): new StreamEntryID()
+                // encodes to "0-0". This is intentional for the demo — messages are produced
+                // BEFORE the group is created, and creating the group at 0-0 ensures those
+                // already-present messages are still delivered to the group (creating at "$"
+                // would skip them).
                 jedis.xgroupCreate(streamName, groupName, new StreamEntryID(), true);
                 log.info("Consumer group '{}' created successfully", groupName);
                 
@@ -163,30 +166,32 @@ public class DLQMessagingService {
                 )
             );
 
-            // Parse the result: { reclaimed: [...], dlq: [...] }
-            List<String> reclaimedIds = new ArrayList<>();
+            // Parse the Lua return contract: [messages_to_process, dlq_ids]
+            //   element[0] = messages to process (new + reclaimed pending), as [id, fields] entries
+            //   element[1] = messages routed to DLQ, as [originalId, newDlqId] pairs
+            List<String> messageIdsToProcess = new ArrayList<>();
             List<String> dlqIds = new ArrayList<>();
-            int messagesReclaimed = 0;
+            int messagesToProcess = 0;
             int messagesSentToDLQ = 0;
 
             if (result instanceof List) {
                 @SuppressWarnings("unchecked")
                 List<Object> resultList = (List<Object>) result;
 
-                // First element: reclaimed messages
+                // First element: messages to process (new + reclaimed)
                 if (resultList.size() > 0 && resultList.get(0) instanceof List) {
                     @SuppressWarnings("unchecked")
-                    List<Object> reclaimedList = (List<Object>) resultList.get(0);
+                    List<Object> toProcessList = (List<Object>) resultList.get(0);
 
-                    for (Object entry : reclaimedList) {
+                    for (Object entry : toProcessList) {
                         if (entry instanceof List) {
                             @SuppressWarnings("unchecked")
                             List<Object> entryList = (List<Object>) entry;
 
                             if (!entryList.isEmpty()) {
                                 String messageId = entryList.get(0).toString();
-                                reclaimedIds.add(messageId);
-                                messagesReclaimed++;
+                                messageIdsToProcess.add(messageId);
+                                messagesToProcess++;
 
                                 // Parse payload if available
                                 Map<String, String> payload = new HashMap<>();
@@ -200,7 +205,7 @@ public class DLQMessagingService {
                                     }
                                 }
 
-                                // Don't broadcast reclaim events (they're not new messages)
+                                // Don't broadcast events here (display is driven by the stream listener)
                             }
                         }
                     }
@@ -240,14 +245,18 @@ public class DLQMessagingService {
                 }
             }
 
-            log.info("claim_or_dlq completed: {} messages reclaimed, {} sent to DLQ",
-                messagesReclaimed, messagesSentToDLQ);
+            log.info("claim_or_dlq completed: {} messages to process, {} sent to DLQ",
+                messagesToProcess, messagesSentToDLQ);
 
+            // NOTE: element[0] is "messages to process" (new + reclaimed), not purely reclaimed.
+            // messagesReclaimed/reclaimedMessageIds carry that count; messagesToDLQ carries the
+            // dlq_ids count from element[1].
             return DLQResponse.builder()
                 .success(true)
-                .messagesReclaimed(messagesReclaimed)
-                .reclaimedMessageIds(reclaimedIds)
-                .details("Processed " + messagesReclaimed + " messages")
+                .messagesReclaimed(messagesToProcess)
+                .messagesToDLQ(messagesSentToDLQ)
+                .reclaimedMessageIds(messageIdsToProcess)
+                .details("Processed " + messagesToProcess + " messages, " + messagesSentToDLQ + " sent to DLQ")
                 .build();
 
         } catch (Exception e) {
@@ -291,7 +300,12 @@ public class DLQMessagingService {
                 params.getConsumerName(),
                 XReadGroupParams.xReadGroupParams()
                     .count(count)
-                    .block(0),
+                    // Finite block (2s): block(0) would block the borrowed pooled
+                    // connection FOREVER when no undelivered entries exist, leaking it
+                    // and hanging the REST thread. A finite timeout guarantees the
+                    // connection is returned to the pool. A null/empty return is fine
+                    // (handled by the 'if (entries != null)' check below).
+                    .block(2000),
                 streams
             );
 
@@ -625,7 +639,7 @@ public class DLQMessagingService {
      * @param streamName Stream name
      * @param groupName Consumer group name
      * @param messageId Message ID
-     * @return Delivery count, or 2 if not found (since it was just reclaimed)
+     * @return Delivery count, or 1 if XPENDING has no entry (treat as a new/first delivery)
      */
     private int getDeliveryCount(redis.clients.jedis.Jedis jedis, String streamName, String groupName, String messageId) {
         try {
@@ -646,7 +660,9 @@ public class DLQMessagingService {
         } catch (Exception e) {
             log.warn("Failed to get delivery count for message {}", messageId, e);
         }
-        return 2; // Default to 2 for retry messages if we can't determine
+        // An XPENDING miss means we could not confirm a redelivery, so treat the
+        // message as a first/new delivery (count 1) rather than misclassifying it as a retry.
+        return 1;
     }
 
     /**

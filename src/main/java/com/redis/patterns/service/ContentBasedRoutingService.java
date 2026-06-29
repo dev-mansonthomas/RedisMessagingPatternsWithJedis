@@ -176,7 +176,21 @@ public class ContentBasedRoutingService implements CommandLineRunner {
             fields.put(convertToString(fieldsList.get(i)), convertToString(fieldsList.get(i + 1)));
         }
 
-        double amount = Double.parseDouble(fields.getOrDefault("amount", "0"));
+        // A missing or non-numeric amount is a malformed message, NOT a $0 low-value payment.
+        // Treat it like the negative-amount error path: do NOT ACK, so it is retried and
+        // eventually routed to the DLQ after MAX_DELIVERIES.
+        String rawAmount = fields.get("amount");
+        double amount;
+        try {
+            if (rawAmount == null || rawAmount.isBlank()) {
+                throw new NumberFormatException("missing amount field");
+            }
+            amount = Double.parseDouble(rawAmount.trim());
+        } catch (NumberFormatException e) {
+            log.warn("Malformed payment {} (amount='{}'): {}. Will retry (max deliveries={})",
+                fields.get("paymentId"), rawAmount, e.getMessage(), MAX_DELIVERIES);
+            throw new IllegalArgumentException("Malformed amount: '" + rawAmount + "'");
+        }
 
         // Negative amounts cause an error - will NOT be ACK'd, triggering retry and eventually DLQ
         if (amount < 0) {

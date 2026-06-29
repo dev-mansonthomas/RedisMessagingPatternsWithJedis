@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
 import { StreamRefreshService } from '../../services/stream-refresh.service';
+import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
+import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 
 interface RoutingRule {
   condition: string;
@@ -13,7 +15,7 @@ interface RoutingRule {
 @Component({
   selector: 'app-content-based-routing',
   standalone: true,
-  imports: [CommonModule, FormsModule, StreamViewerComponent],
+  imports: [CommonModule, FormsModule, StreamViewerComponent, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './content-based-routing.component.html',
   styleUrl: './content-based-routing.component.scss'
@@ -22,6 +24,7 @@ export class ContentBasedRoutingComponent implements OnInit {
   private http = inject(HttpClient);
   private cdr = inject(ChangeDetectorRef);
   private refreshService = inject(StreamRefreshService);
+  diagrams = inject(DiagramDefinitionsService);
   private apiUrl = 'http://localhost:8080/api/content-routing';
 
   // Form fields

@@ -166,6 +166,12 @@
       <strong>⚡ Result:</strong>
       Jobs are processed respecting per-type concurrency limits. Payment: max 3, Email: max 2, CSV: max 1 (protecting external APIs and CPU).
     </div>
+
+    <!-- Architecture Diagram -->
+    <app-mermaid-diagram
+      title="View Architecture & Sequence Diagrams"
+      [architectureDiagram]="diagrams.tokenBucket.architecture"
+      [sequenceDiagram]="diagrams.tokenBucket.sequence">
+    </app-mermaid-diagram>
   </div>
 </div>
-

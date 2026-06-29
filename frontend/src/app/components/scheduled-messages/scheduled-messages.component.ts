@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { StreamViewerComponent } from '../stream-viewer/stream-viewer.component';
 import { StreamRefreshService } from '../../services/stream-refresh.service';
+import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
+import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 
 interface ScheduledMessage {
   id: string;
@@ -16,7 +18,7 @@ interface ScheduledMessage {
 @Component({
   selector: 'app-scheduled-messages',
   standalone: true,
-  imports: [CommonModule, FormsModule, StreamViewerComponent],
+  imports: [CommonModule, FormsModule, StreamViewerComponent, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="scheduled-messages-container">
@@ -117,6 +119,13 @@ interface ScheduledMessage {
           </form>
         </div>
       </div>
+
+      <!-- Architecture Diagram -->
+      <app-mermaid-diagram
+        title="View Architecture & Sequence Diagrams"
+        [architectureDiagram]="diagrams.scheduledMessages.architecture"
+        [sequenceDiagram]="diagrams.scheduledMessages.sequence">
+      </app-mermaid-diagram>
 
       <!-- Info Section -->
       <div class="info-box">
@@ -239,6 +248,7 @@ interface ScheduledMessage {
 export class ScheduledMessagesComponent implements OnInit, OnDestroy {
   private http = inject(HttpClient);
   private refreshService = inject(StreamRefreshService);
+  diagrams = inject(DiagramDefinitionsService);
   private apiUrl = 'http://localhost:8080/api/scheduled-messages';
 
   messages: ScheduledMessage[] = [];

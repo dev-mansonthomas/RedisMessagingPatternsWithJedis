@@ -44,6 +44,9 @@ public class PerKeySerializedService implements CommandLineRunner {
     private static final long POLL_INTERVAL_MS = 500;
     private static final long PROCESSING_SLEEP_MS = 4000;
     private static final long LOCK_TTL_MS = 30000; // 30 seconds lock TTL
+    // Reclaim idle must exceed processing time, otherwise an in-flight message
+    // gets reclaimed repeatedly while a worker is still processing it.
+    private static final long RECLAIM_MIN_IDLE_MS = 10000;
 
     // Worker management
     private final Map<Integer, AtomicBoolean> workerRunning = new ConcurrentHashMap<>();
@@ -143,9 +146,10 @@ public class PerKeySerializedService implements CommandLineRunner {
 
     private void claimAndProcessIdleMessages(int workerId, String consumerName, String doneStream, Jedis jedis)
             throws InterruptedException {
-        // Claim messages that have been idle for more than 500ms (lock retry interval)
+        // Claim messages idle longer than the processing time, so we never reclaim
+        // a message another worker is still actively processing.
         var claimResult = jedis.xautoclaim(JOB_STREAM, JOB_GROUP, consumerName,
-            500, new StreamEntryID("0-0"), new XAutoClaimParams().count(1));
+            RECLAIM_MIN_IDLE_MS, new StreamEntryID("0-0"), new XAutoClaimParams().count(1));
 
         if (claimResult != null && claimResult.getValue() != null) {
             for (StreamEntry entry : claimResult.getValue()) {
@@ -205,8 +209,11 @@ public class PerKeySerializedService implements CommandLineRunner {
 
             log.info("Worker-{}: COMPLETED orderId={}, action={}", workerId, orderId, action);
         } finally {
-            // Release lock
-            jedis.del(lockKey);
+            // Release the lock via the registered compare-and-delete function: it only
+            // deletes the lock if it still holds OUR token (messageId). A plain DEL could
+            // erase a lock another worker re-acquired after our TTL expired.
+            jedis.fcall("release_lock",
+                Collections.singletonList(lockKey), Collections.singletonList(messageId));
             log.debug("Worker-{}: Released lock for orderId={}", workerId, orderId);
         }
     }

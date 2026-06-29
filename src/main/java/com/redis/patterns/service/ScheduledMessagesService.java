@@ -125,8 +125,18 @@ public class ScheduledMessagesService implements CommandLineRunner {
                     Map<String, String> payload = jedis.hgetAll(hashKey);
                     
                     if (!payload.isEmpty()) {
-                        // Get scheduled timestamp and format it
-                        long scheduledForMs = jedis.zscore(SCHEDULED_SET, messageKey).longValue();
+                        // Get scheduled timestamp. ZSCORE returns null if the member was
+                        // removed concurrently (e.g. deleteMessage) between the ZRANGEBYSCORE
+                        // above and here; skip it and clean up any orphaned hash.
+                        Double score = jedis.zscore(SCHEDULED_SET, messageKey);
+                        if (score == null) {
+                            log.debug("Scheduled message {} was removed concurrently, skipping", messageId);
+                            if (jedis.exists(hashKey)) {
+                                jedis.del(hashKey);
+                            }
+                            continue;
+                        }
+                        long scheduledForMs = score.longValue();
 
                         // Add execution metadata with formatted timestamps
                         payload.put("executedAt", formatTimestamp(System.currentTimeMillis()));

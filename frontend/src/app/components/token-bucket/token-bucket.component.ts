@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { StreamRefreshService } from '../../services/stream-refresh.service';
+import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
+import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 
 interface JobType {
   name: string;
@@ -28,7 +30,7 @@ interface ChartData {
 @Component({
   selector: 'app-token-bucket',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MermaidDiagramComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './token-bucket.component.html',
   styleUrl: './token-bucket.component.scss'
@@ -37,6 +39,7 @@ export class TokenBucketComponent implements OnInit, OnDestroy {
   private http = inject(HttpClient);
   private cdr = inject(ChangeDetectorRef);
   private refreshService = inject(StreamRefreshService);
+  diagrams = inject(DiagramDefinitionsService);
   private apiUrl = 'http://localhost:8080/api/token-bucket';
   private configPollInterval: ReturnType<typeof setInterval> | null = null;
   private progressPollInterval: ReturnType<typeof setInterval> | null = null;

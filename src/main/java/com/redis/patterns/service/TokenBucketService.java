@@ -69,22 +69,21 @@ public class TokenBucketService implements CommandLineRunner {
     // 3 job types x max 6 concurrent = 18 workers needed to saturate all limits
     private static final int NUM_WORKERS = 18;
     private static final long POLL_INTERVAL_MS = 10; // Fast polling for responsiveness
+    // XAUTOCLAIM idle threshold for reclaiming pending messages. MUST exceed the maximum
+    // processing time (longest job is CSV at 10s) — otherwise an in-flight message held by a
+    // busy (not dead) worker gets stolen by another worker and processed twice, breaking the
+    // concurrency cap this pattern exists to enforce. 15s leaves margin over the 10s job.
+    private static final long RECLAIM_MIN_IDLE_MS = 15000;
 
     // Worker management
     private final Map<Integer, AtomicBoolean> workerRunning = new ConcurrentHashMap<>();
     private final AtomicBoolean shutdown = new AtomicBoolean(false);
 
-    // Lua script for atomic token acquisition
-    private static final String ACQUIRE_TOKEN_SCRIPT = """
-        local runningKey = KEYS[1]
-        local maxConcurrency = tonumber(ARGV[1])
-        local current = tonumber(redis.call('GET', runningKey) or '0')
-        if current >= maxConcurrency then
-            return 0
-        end
-        redis.call('INCR', runningKey)
-        return 1
-        """;
+    // Token acquire/release run as registered functions in the stream_utils Lua
+    // library (see lua/stream_utils.lua), invoked via FCALL — consistent with the
+    // other patterns and loaded once at startup by RedisLuaFunctionLoader.
+    private static final String ACQUIRE_TOKEN_FUNCTION = "acquire_token";
+    private static final String RELEASE_TOKEN_FUNCTION = "release_token";
 
     @Override
     public void run(String... args) throws Exception {
@@ -99,7 +98,7 @@ public class TokenBucketService implements CommandLineRunner {
                 jedis.xgroupCreate(JOB_STREAM, JOB_GROUP, StreamEntryID.LAST_ENTRY, true);
                 log.info("Created consumer group {} for stream {}", JOB_GROUP, JOB_STREAM);
             } catch (Exception e) {
-                if (!e.getMessage().contains("BUSYGROUP")) {
+                if (e.getMessage() == null || !e.getMessage().contains("BUSYGROUP")) {
                     log.warn("Error creating consumer group: {}", e.getMessage());
                 }
             }
@@ -150,7 +149,7 @@ public class TokenBucketService implements CommandLineRunner {
             // First, try to claim idle messages (skipped by other workers)
             var claimParams = XAutoClaimParams.xAutoClaimParams().count(1);
             var claimResult = jedis.xautoclaim(JOB_STREAM, JOB_GROUP, consumerName,
-                100, new StreamEntryID("0-0"), claimParams); // 100ms idle time
+                RECLAIM_MIN_IDLE_MS, new StreamEntryID("0-0"), claimParams); // idle threshold must exceed max job time
 
             if (claimResult != null && !claimResult.getValue().isEmpty()) {
                 for (StreamEntry entry : claimResult.getValue()) {
@@ -162,7 +161,7 @@ public class TokenBucketService implements CommandLineRunner {
             // Then, read new messages
             var params = XReadGroupParams.xReadGroupParams().count(1).block(50);
             var results = jedis.xreadGroup(JOB_GROUP, consumerName, params,
-                Map.of(JOB_STREAM, StreamEntryID.UNRECEIVED_ENTRY));
+                Map.of(JOB_STREAM, StreamEntryID.XREADGROUP_UNDELIVERED_ENTRY));
 
             if (results == null || results.isEmpty()) return;
 
@@ -185,8 +184,8 @@ public class TokenBucketService implements CommandLineRunner {
         // Get max concurrency for this job type
         int maxConcurrency = getMaxConcurrency(jobType, jedis);
 
-        // Try to acquire token using Lua script
-        Object result = jedis.eval(ACQUIRE_TOKEN_SCRIPT,
+        // Try to acquire a token via the registered Lua function (atomic check-and-incr)
+        Object result = jedis.fcall(ACQUIRE_TOKEN_FUNCTION,
             List.of(runningKey),
             List.of(String.valueOf(maxConcurrency)));
 
@@ -220,6 +219,9 @@ public class TokenBucketService implements CommandLineRunner {
             doneFields.put("processedAt", Instant.now().toString());
             doneFields.put("duration", processingTime + "ms");
 
+            // At-least-once: XADD-done then XACK are NOT atomic. A crash between them re-delivers
+            // the message (XAUTOCLAIM after RECLAIM_MIN_IDLE_MS), producing a duplicate done entry
+            // and possibly a DLQ route after MAX_DELIVERIES — downstream consumers must be idempotent.
             jedis.xadd(DONE_STREAM, XAddParams.xAddParams(), doneFields);
 
             // Increment completed counter for this job type
@@ -244,8 +246,9 @@ public class TokenBucketService implements CommandLineRunner {
 
             log.info("Worker-{}: COMPLETED {} jobId={}", workerId, jobType.toUpperCase(), jobId);
         } finally {
-            // Release token
-            jedis.decr(runningKey);
+            // Release the token via the registered Lua function (decrement floored at 0,
+            // so a redelivery-driven double release can't drive the counter negative)
+            jedis.fcall(RELEASE_TOKEN_FUNCTION, List.of(runningKey), List.of());
             log.debug("Worker-{}: Released token for {}", workerId, jobType);
         }
     }
@@ -354,7 +357,7 @@ public class TokenBucketService implements CommandLineRunner {
             try {
                 jedis.xgroupCreate(JOB_STREAM, JOB_GROUP, StreamEntryID.LAST_ENTRY, true);
             } catch (Exception e) {
-                if (!e.getMessage().contains("BUSYGROUP")) {
+                if (e.getMessage() == null || !e.getMessage().contains("BUSYGROUP")) {
                     log.warn("Error recreating consumer group: {}", e.getMessage());
                 }
             }
