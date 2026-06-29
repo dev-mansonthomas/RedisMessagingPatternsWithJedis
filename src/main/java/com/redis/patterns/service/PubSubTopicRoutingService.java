@@ -1,5 +1,8 @@
 package com.redis.patterns.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.redis.patterns.config.RedisProperties;
 import com.redis.patterns.dto.PubSubEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -9,6 +12,7 @@ import redis.clients.jedis.JedisPubSub;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -19,6 +23,8 @@ import java.util.concurrent.Executors;
 public class PubSubTopicRoutingService {
 
     private final JedisPool jedisPool;
+    private final RedisProperties redisProperties;
+    private final ObjectMapper objectMapper;
     private final WebSocketEventService webSocketEventService;
     private final Map<String, PatternSubscriber> activeSubscriptions = new ConcurrentHashMap<>();
     private final ExecutorService executorService = Executors.newCachedThreadPool();
@@ -27,8 +33,18 @@ public class PubSubTopicRoutingService {
     public static final String ORDER_AUDIT_PATTERN = "order.*.created";
     public static final String US_ORDERS_PATTERN = "order.us.*";
 
-    public PubSubTopicRoutingService(JedisPool jedisPool, WebSocketEventService webSocketEventService) {
+    /**
+     * Backoff between reconnect attempts when a subscription drops (milliseconds).
+     */
+    private static final long RECONNECT_BACKOFF_MILLIS = 1000;
+
+    public PubSubTopicRoutingService(JedisPool jedisPool,
+                                     RedisProperties redisProperties,
+                                     ObjectMapper objectMapper,
+                                     WebSocketEventService webSocketEventService) {
         this.jedisPool = jedisPool;
+        this.redisProperties = redisProperties;
+        this.objectMapper = objectMapper;
         this.webSocketEventService = webSocketEventService;
     }
 
@@ -74,16 +90,27 @@ public class PubSubTopicRoutingService {
         PatternSubscriber subscriber = new PatternSubscriber(subscriberName, pattern);
         activeSubscriptions.put(subscriberName, subscriber);
         executorService.submit(() -> {
-            try (Jedis jedis = jedisPool.getResource()) {
-                log.info("Starting pattern subscription '{}' -> '{}'", subscriberName, pattern);
-                jedis.psubscribe(subscriber, pattern);
-            } catch (Exception e) {
-                if (!subscriber.isStopped()) {
-                    log.error("Pattern subscription error for '{}'", subscriberName, e);
+            log.info("Starting pattern subscription '{}' -> '{}'", subscriberName, pattern);
+            // Blocking PSUBSCRIBE on a DEDICATED connection (not pooled), wrapped in a
+            // reconnect loop so a dropped connection is retried instead of stopping delivery.
+            while (subscriber.isRunning()) {
+                Jedis jedis = null;
+                try {
+                    jedis = createDedicatedConnection();
+                    jedis.psubscribe(subscriber, pattern);
+                } catch (Exception e) {
+                    if (subscriber.isRunning()) {
+                        log.warn("Pattern subscription '{}' connection lost, reconnecting in {}ms: {}",
+                                subscriberName, RECONNECT_BACKOFF_MILLIS, e.getMessage());
+                        sleepBackoff(subscriber);
+                    }
+                } finally {
+                    if (jedis != null) {
+                        jedis.close();
+                    }
                 }
-            } finally {
-                activeSubscriptions.remove(subscriberName);
             }
+            activeSubscriptions.remove(subscriberName);
         });
     }
 
@@ -93,20 +120,55 @@ public class PubSubTopicRoutingService {
         return result;
     }
 
-    private String serializePayload(Map<String, String> payload) {
-        if (payload == null || payload.isEmpty()) return "";
-        return payload.entrySet().stream()
-            .map(e -> e.getKey() + "=" + e.getValue())
-            .reduce((a, b) -> a + "," + b)
-            .orElse("");
+    /**
+     * Builds a dedicated (non-pooled) Jedis connection from {@link RedisProperties}.
+     * Authenticates only when a password is configured.
+     */
+    private Jedis createDedicatedConnection() {
+        Jedis jedis = new Jedis(redisProperties.getHost(), redisProperties.getPort());
+        String password = redisProperties.getPassword();
+        if (password != null && !password.isEmpty()) {
+            jedis.auth(password);
+        }
+        return jedis;
     }
 
+    private void sleepBackoff(PatternSubscriber subscriber) {
+        try {
+            Thread.sleep(RECONNECT_BACKOFF_MILLIS);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            subscriber.stop();
+        }
+    }
+
+    /**
+     * Serializes the payload map to a JSON string. JSON avoids the corruption that the
+     * previous {@code key=value,key=value} format suffered when a value contained ',' or '='.
+     */
+    private String serializePayload(Map<String, String> payload) {
+        if (payload == null || payload.isEmpty()) return "{}";
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            log.error("Failed to serialize payload, falling back to empty object", e);
+            return "{}";
+        }
+    }
+
+    /**
+     * Parses a JSON object string back into a payload map.
+     */
     private Map<String, String> deserializePayload(String message) {
         Map<String, String> payload = new ConcurrentHashMap<>();
         if (message == null || message.isEmpty()) return payload;
-        for (String pair : message.split(",")) {
-            String[] kv = pair.split("=", 2);
-            if (kv.length == 2) payload.put(kv[0], kv[1]);
+        try {
+            Map<String, String> parsed = objectMapper.readValue(message, new TypeReference<LinkedHashMap<String, String>>() {});
+            if (parsed != null) {
+                parsed.forEach((k, v) -> payload.put(k, v == null ? "" : v));
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse JSON payload '{}': {}", message, e.getMessage());
         }
         return payload;
     }
@@ -114,7 +176,7 @@ public class PubSubTopicRoutingService {
     private class PatternSubscriber extends JedisPubSub {
         private final String subscriberName;
         private final String pattern;
-        private volatile boolean stopped = false;
+        private volatile boolean running = true;
 
         public PatternSubscriber(String subscriberName, String pattern) {
             this.subscriberName = subscriberName;
@@ -122,11 +184,20 @@ public class PubSubTopicRoutingService {
         }
 
         public String getPattern() { return pattern; }
-        public boolean isStopped() { return stopped; }
+        public boolean isRunning() { return running; }
+        public boolean isStopped() { return !running; }
 
         public void stop() {
-            this.stopped = true;
-            this.punsubscribe();
+            this.running = false;
+            // Guard punsubscribe() so we don't hit "JedisPubSub is not subscribed"
+            // when the subscription never established (or already dropped).
+            try {
+                if (isSubscribed()) {
+                    this.punsubscribe();
+                }
+            } catch (Exception e) {
+                log.debug("[{}] Error while unsubscribing during stop: {}", subscriberName, e.getMessage());
+            }
         }
 
         @Override
@@ -155,4 +226,3 @@ public class PubSubTopicRoutingService {
         }
     }
 }
-
