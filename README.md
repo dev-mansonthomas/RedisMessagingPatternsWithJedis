@@ -108,41 +108,98 @@ docker-compose down -v
 
 ### Stream Patterns
 
-| Work Queue | Fan-Out |
-|:---:|:---:|
-| ![Work Queue](img/WorkQueue.jpg) | ![Fan-Out](img/Fan-Out.jpg) |
-| Distribute tasks across workers | One message to multiple consumers |
+<table>
+<tr>
+<th>Work Queue</th>
+<th>Fan-Out</th>
+</tr>
+<tr>
+<td align="center"><a href="img/WorkQueue.jpg"><img src="img/WorkQueue.jpg" alt="Work Queue" width="400"/></a></td>
+<td align="center"><a href="img/Fan-Out.jpg"><img src="img/Fan-Out.jpg" alt="Fan-Out" width="400"/></a></td>
+</tr>
+<tr>
+<td align="center">Distribute tasks across workers<br/>📊 <a href="docs/diagrams/work-queue.md">Architecture & Sequence Diagrams</a></td>
+<td align="center">One message to multiple consumers<br/>📊 <a href="docs/diagrams/fan-out.md">Architecture & Sequence Diagrams</a></td>
+</tr>
+</table>
 
-| Per-Key Serialized Processing | Scheduled Messages |
-|:---:|:---:|
-| ![Per-Key Serialized](img/Per-Key%20serialised%20Processing.jpg) | ![Scheduled Messages](img/ScheduledMessage.jpg) |
-| Process same-key messages in order | Delayed message delivery |
+<table>
+<tr>
+<th>Per-Key Serialized Processing</th>
+<th>Scheduled Messages</th>
+</tr>
+<tr>
+<td align="center"><a href="img/Per-Key%20serialised%20Processing.jpg"><img src="img/Per-Key%20serialised%20Processing.jpg" alt="Per-Key Serialized" width="400"/></a></td>
+<td align="center"><a href="img/ScheduledMessage.jpg"><img src="img/ScheduledMessage.jpg" alt="Scheduled Messages" width="400"/></a></td>
+</tr>
+<tr>
+<td align="center">Process same-key messages in order<br/>📊 <a href="docs/diagrams/per-key-serialized.md">Architecture & Sequence Diagrams</a></td>
+<td align="center">Delayed message delivery<br/>📊 <a href="docs/diagrams/scheduled-messages.md">Architecture & Sequence Diagrams</a></td>
+</tr>
+</table>
 
 ### Messaging Patterns
 
-| Token Bucket | Pub/Sub |
-|:---:|:---:|
-| ![Token Bucket](img/TokenBucket.jpg) | ![Pub/Sub](img/PubSub.jpg) |
-| Dynamic concurrency control | Real-time broadcast messaging |
+<table>
+<tr>
+<th>Token Bucket</th>
+<th>Pub/Sub</th>
+</tr>
+<tr>
+<td align="center"><a href="img/TokenBucket.jpg"><img src="img/TokenBucket.jpg" alt="Token Bucket" width="400"/></a></td>
+<td align="center"><a href="img/PubSub.jpg"><img src="img/PubSub.jpg" alt="Pub/Sub" width="400"/></a></td>
+</tr>
+<tr>
+<td align="center">Dynamic concurrency control<br/>📊 <a href="docs/diagrams/token-bucket.md">Architecture & Sequence Diagrams</a></td>
+<td align="center">Real-time broadcast messaging<br/>📊 <a href="docs/diagrams/pubsub.md">Architecture & Sequence Diagrams</a></td>
+</tr>
+</table>
 
 ### Routing Patterns
 
-| Content-Based Routing | Topic Routing |
-|:---:|:---:|
-| ![Content-Based Routing](img/content-based-routing.jpg) | ![Topic Routing](img/Topic%20Routing.jpg) |
-| Route by message content | Route by topic hierarchy |
+<table>
+<tr>
+<th>Content-Based Routing</th>
+<th>Topic Routing</th>
+</tr>
+<tr>
+<td align="center"><a href="img/content-based-routing.jpg"><img src="img/content-based-routing.jpg" alt="Content-Based Routing" width="400"/></a></td>
+<td align="center"><a href="img/Topic%20Routing.jpg"><img src="img/Topic%20Routing.jpg" alt="Topic Routing" width="400"/></a></td>
+</tr>
+<tr>
+<td align="center">Route by message content<br/>📊 <a href="docs/diagrams/content-based-routing.md">Architecture & Sequence Diagrams</a></td>
+<td align="center">Route by topic hierarchy<br/>📊 <a href="docs/diagrams/topic-routing.md">Architecture & Sequence Diagrams</a></td>
+</tr>
+</table>
 
-| Key Routing | Request/Reply |
-|:---:|:---:|
-| ![Key Routing](img/Key%20Routing.jpg) | ![Request/Reply](img/RequestReply.jpg) |
-| Route by key pattern | Synchronous request-response |
+<table>
+<tr>
+<th>Key Routing</th>
+<th>Request/Reply</th>
+</tr>
+<tr>
+<td align="center"><a href="img/Key%20Routing.jpg"><img src="img/Key%20Routing.jpg" alt="Key Routing" width="400"/></a></td>
+<td align="center"><a href="img/RequestReply.jpg"><img src="img/RequestReply.jpg" alt="Request/Reply" width="400"/></a></td>
+</tr>
+<tr>
+<td align="center">Route by key pattern<br/>📊 <a href="docs/diagrams/key-routing.md">Architecture & Sequence Diagrams</a></td>
+<td align="center">Synchronous request-response<br/>📊 <a href="docs/diagrams/request-reply.md">Architecture & Sequence Diagrams</a></td>
+</tr>
+</table>
 
 ### Error Handling
 
-| Dead Letter Queue (DLQ) |
-|:---:|
-| ![DLQ](img/DLQ.jpg) |
-| Handle failed messages gracefully |
+<table>
+<tr>
+<th>Dead Letter Queue (DLQ)</th>
+</tr>
+<tr>
+<td align="center"><a href="img/DLQ.jpg"><img src="img/DLQ.jpg" alt="DLQ" width="400"/></a></td>
+</tr>
+<tr>
+<td align="center">Handle failed messages gracefully<br/>📊 <a href="docs/diagrams/dlq.md">Architecture & Sequence Diagrams</a></td>
+</tr>
+</table>
 
 ---
 
@@ -196,40 +253,80 @@ docker-compose down -v
 
 ## ✨ Implemented Patterns
 
-### 1. 📬 Dead Letter Queue (DLQ)
+The app ships **11 messaging patterns**, each on its own page with a live data-flow view.
+Detailed contracts (Redis keys, endpoints, edge cases) live in [`docs/specs/`](docs/specs/).
+
+### 1. 📬 Dead Letter Queue (DLQ) — `/dlq`
 
 **What it solves**: When message processing fails repeatedly, messages are automatically moved to a separate queue instead of being lost.
 
 **Use case**: E-commerce order processing where some orders fail validation.
 
-**Key concepts**:
-- Consumer Groups track message delivery count
-- After N failed attempts, messages go to DLQ
-- Failed messages can be inspected and reprocessed later
+**Key concepts**: Consumer Groups track delivery count; after N failed attempts messages go to a `:dlq` stream; failed messages can be inspected and reprocessed. (Lua `read_claim_or_dlq`.)
 
-### 2. 📢 Publish/Subscribe (Pub/Sub)
+### 2. 📢 Publish/Subscribe (Pub/Sub) — `/pubsub`
 
 **What it solves**: Send a message to multiple recipients simultaneously without knowing who they are.
 
 **Use case**: Real-time notifications, chat systems, live updates.
 
-**Key concepts**:
-- Fire-and-forget: No delivery guarantee
-- Fan-out: One message reaches all subscribers
-- Ephemeral: Messages are not persisted
+**Key concepts**: Fire-and-forget, no delivery guarantee, ephemeral (not persisted).
 
-### 3. ↔️ Request/Reply
+### 3. ↔️ Request/Reply — `/request-reply`
 
-**What it solves**: Send a request and wait for a response, with automatic timeout handling. Multiple workers can process requests in parallel without duplicate processing.
+**What it solves**: Send a request and wait for a response, with automatic timeout handling. Multiple workers process requests in parallel without duplicates.
 
 **Use case**: Inventory check before order confirmation, distributed task processing.
 
-**Key concepts**:
-- Correlation ID links request to response
-- Consumer Groups ensure each request is processed by exactly one worker
-- Multiple workers can share the load (horizontal scaling)
-- Timeout keys trigger automatic timeout responses
-- Keyspace notifications detect key expiration
+**Key concepts**: Correlation ID links request to response; Consumer Groups ensure exactly-once processing; expiring timeout keys + keyspace notifications trigger automatic TIMEOUT responses.
+
+### 4. 👷 Work Queue (Competing Consumers) — `/work-queue`
+
+**What it solves**: Spread jobs across parallel workers; each job handled by exactly one worker.
+
+**Key concepts**: One consumer group, 4 Virtual-Thread workers; failed jobs retry then route to DLQ.
+
+### 5. 📡 Fan-Out (Broadcast) — `/fan-out`
+
+**What it solves**: Deliver **every** message to **every** worker (vs Work Queue's one-winner).
+
+**Key concepts**: One consumer group **per worker** on the same stream; per-worker done streams.
+
+### 6. 🧭 Topic Routing (Streams) — `/topic-routing`
+
+**What it solves**: Route a message to one or more destination streams by a `routingKey`, using editable rules with priority and stop-on-match.
+
+**Key concepts**: Lua `route_message`; rules stored in Redis hashes and editable at runtime.
+
+### 7. 🧭 Topic Routing (Pub/Sub) — `/pubsub-topic-routing`
+
+**What it solves**: Same routing idea over Redis Pub/Sub pattern subscriptions (`PSUBSCRIBE`).
+
+**Key concepts**: Glob channel patterns (`order.eu.*`, `order.*.created`); non-durable, push-model.
+
+### 8. 🔀 Content-Based Routing — `/content-routing`
+
+**What it solves**: Route by **payload content** (payment amount) into tiered streams; invalid input → DLQ.
+
+**Key concepts**: Threshold tiers (standard / high-risk / manual-review); routing metadata added.
+
+### 9. ⏰ Scheduled / Delayed Messages — `/scheduled-messages`
+
+**What it solves**: Deliver a message at a future time.
+
+**Key concepts**: Sorted Set scored by due-time + payload Hash; scheduler polls and emits to `reminders.v1`.
+
+### 10. 🔒 Per-Key Serialized Processing — `/per-key-serialized`
+
+**What it solves**: Process jobs in parallel **across keys** but strictly serial **per key** (e.g. per `orderId`).
+
+**Key concepts**: `SET NX` per-key lock; held keys skipped and retried via `XAUTOCLAIM`.
+
+### 11. 🪣 Token Bucket (Concurrency Cap) — `/token-bucket`
+
+**What it solves**: Cap concurrently-running jobs per type (e.g. Payment 3, Email 2, CSV 1).
+
+**Key concepts**: Lua acquire-token check against per-type counters; live running/completed charts.
 
 ---
 
@@ -468,6 +565,23 @@ RedisMessagingPatternsWithJedis/
 │
 └── README.md                              # You are here!
 ```
+
+---
+
+## 📖 Documentation
+
+- **Humans** start here (this README): how to run, patterns overview, screenshots.
+- **Agents / deep dives** live in [`docs/`](docs/):
+  - [`docs/product/PRD.md`](docs/product/PRD.md) — problem, users, scope
+  - [`docs/architecture/overview.md`](docs/architecture/overview.md) — system design, thread model, Redis keys
+  - [`docs/specs/`](docs/specs/) — one contract per pattern (11)
+  - [`docs/adr/`](docs/adr/) — key decisions and why
+  - [`docs/migration-status.md`](docs/migration-status.md) — what's done vs. roadmap
+  - [`docs/TODO.md`](docs/TODO.md) — open review/security/quality findings
+- [`CLAUDE.md`](CLAUDE.md) is the entry map for AI assistants.
+
+> ⚠️ This is an **educational demo** — no auth, open CORS, demo-grade security. Not for production
+> exposure. See [`docs/adr/0008-demo-grade-security-posture.md`](docs/adr/0008-demo-grade-security-posture.md).
 
 ---
 
