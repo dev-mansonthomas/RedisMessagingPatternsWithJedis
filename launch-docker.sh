@@ -3,19 +3,25 @@
 # Launch Docker Compose - Build, Start, and optionally Follow Logs
 # =============================================================================
 # Usage:
-#   ./launch-docker.sh              # Start without following logs
+#   ./launch-docker.sh              # Start (rebuild only if image missing)
+#   ./launch-docker.sh --build      # Force rebuild frontend & backend images
 #   ./launch-docker.sh --follow     # Start and follow logs
 #   ./launch-docker.sh -f           # Start and follow logs (short)
+#   ./launch-docker.sh --build -f   # Rebuild + follow logs
 # =============================================================================
 
 set -e
 
 # Parse arguments
 FOLLOW_LOGS=false
+FORCE_BUILD=false
 for arg in "$@"; do
     case $arg in
         --follow|-f)
             FOLLOW_LOGS=true
+            ;;
+        --build|-b)
+            FORCE_BUILD=true
             ;;
     esac
 done
@@ -33,25 +39,30 @@ echo "   ✅ Redis images up to date"
 echo ""
 
 # -------------------------------------------------------------------------
-# Step 2: Build backend/frontend images if not already built
+# Step 2: Build backend/frontend images
 # -------------------------------------------------------------------------
 BACKEND_IMAGE="redismessagingpatternswithjedis-backend"
 FRONTEND_IMAGE="redismessagingpatternswithjedis-frontend"
 
 BUILD_ARGS=""
 
-if ! docker image inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then
-    echo "🔨 Backend image not found, will build..."
+if [ "$FORCE_BUILD" = true ]; then
+    echo "🔨 Force rebuild requested"
     BUILD_ARGS="--build"
 else
-    echo "   ✅ Backend image exists"
-fi
+    if ! docker image inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then
+        echo "🔨 Backend image not found, will build..."
+        BUILD_ARGS="--build"
+    else
+        echo "   ✅ Backend image exists"
+    fi
 
-if ! docker image inspect "$FRONTEND_IMAGE" > /dev/null 2>&1; then
-    echo "🔨 Frontend image not found, will build..."
-    BUILD_ARGS="--build"
-else
-    echo "   ✅ Frontend image exists"
+    if ! docker image inspect "$FRONTEND_IMAGE" > /dev/null 2>&1; then
+        echo "🔨 Frontend image not found, will build..."
+        BUILD_ARGS="--build"
+    else
+        echo "   ✅ Frontend image exists"
+    fi
 fi
 
 echo ""
@@ -60,7 +71,7 @@ echo ""
 # Step 3: Start all services
 # -------------------------------------------------------------------------
 echo "🐳 Starting containers..."
-docker-compose up -d $BUILD_ARGS
+docker compose up -d $BUILD_ARGS
 
 echo ""
 echo "✅ All services started!"
@@ -76,8 +87,8 @@ echo ""
 if [ "$FOLLOW_LOGS" = true ]; then
     echo "📋 Following logs (Ctrl+C to stop)..."
     echo ""
-    docker-compose logs -f
+    docker compose logs -f
 else
-    echo "💡 To follow logs, run: docker-compose logs -f"
+    echo "💡 To follow logs, run: docker compose logs -f"
     echo "   Or restart with: ./launch-docker.sh --follow"
 fi

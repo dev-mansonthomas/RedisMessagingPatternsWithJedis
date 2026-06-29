@@ -6,6 +6,7 @@ import com.redis.patterns.dto.DLQEvent;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.StreamEntryID;
@@ -22,6 +23,11 @@ import java.util.*;
  */
 @Slf4j
 @Service
+// This service starts request/response listener threads in @PostConstruct that
+// immediately FCALL the Lua functions. Depend on the loader so its @PostConstruct
+// registers the `stream_utils` library first — otherwise the response listener
+// races ahead and logs "ERR Function not found" on startup.
+@DependsOn("redisLuaFunctionLoader")
 @RequiredArgsConstructor
 public class RequestReplyService {
 
