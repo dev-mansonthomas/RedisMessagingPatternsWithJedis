@@ -10,6 +10,9 @@
   2. request - Request/Reply pattern request sender
   3. response - Request/Reply pattern response sender
   4. route_message - Topic routing pattern (routes messages based on routing key)
+  5. acquire_token - Token Bucket: atomic check-and-increment of a concurrency counter
+  6. release_token - Token Bucket: decrement the concurrency counter, floored at 0
+  7. release_lock - Per-Key Serialized: compare-and-delete a lock (owner-checked)
 
   Author: Redis Patterns Team
   Redis Version: 8.4.0+
@@ -375,6 +378,7 @@ redis.register_function('route_message', function(keys, args)
   local routed_to = {}
   local rules_evaluated = 0
   local rules_matched = 0
+  local rules_invalid = 0  -- rules whose pattern failed to compile (malformed Lua pattern)
 
   -- -------------------------------------------------------------------------
   -- Step 1: Load metadata/config from Redis
@@ -448,8 +452,15 @@ redis.register_function('route_message', function(keys, args)
     local should_evaluate = rule.enabled and rule.pattern and rule.destination
 
     if should_evaluate then
-      -- Evaluate Lua pattern
-      local match = string.match(routing_key, rule.pattern)
+      -- Evaluate Lua pattern.
+      -- pcall guards against a malformed user-supplied pattern raising "malformed pattern":
+      -- a bad rule is treated as "did not match" (skipped) instead of aborting the whole
+      -- function, so one invalid rule no longer disables routing for the entire exchange.
+      local ok, match = pcall(string.match, routing_key, rule.pattern)
+      if not ok then
+        rules_invalid = rules_invalid + 1
+        match = nil
+      end
       if match then
         local already_added = false
         for _, t in ipairs(target_streams) do
@@ -483,5 +494,71 @@ redis.register_function('route_message', function(keys, args)
   -- Step 8: Return routing results with metadata
   -- -------------------------------------------------------------------------
   return { exchange_id, routed_to, rules_evaluated, rules_matched }
+end)
+
+-- ============================================================================
+-- Function 5: acquire_token (Token Bucket Pattern)
+-- ============================================================================
+--
+-- Atomically reserves a concurrency "token": reads the current running counter
+-- and increments it only if it is still below the configured maximum. Running
+-- the check-and-increment server-side guarantees no two workers can both pass
+-- the cap on a race.
+--
+-- KEYS[1] = running counter key (e.g. token-bucket:running:csv)
+-- ARGV[1] = max concurrency for this job type
+-- Returns 1 if a token was acquired, 0 if the cap is already reached.
+-- ============================================================================
+redis.register_function('acquire_token', function(keys, args)
+  local running_key = keys[1]
+  local max_concurrency = tonumber(args[1])
+  local current = tonumber(redis.call('GET', running_key) or '0')
+  if current >= max_concurrency then
+    return 0
+  end
+  redis.call('INCR', running_key)
+  return 1
+end)
+
+-- ============================================================================
+-- Function 6: release_token (Token Bucket Pattern)
+-- ============================================================================
+--
+-- Releases a previously acquired token by decrementing the running counter,
+-- floored at 0 so a stray release (or a double release after a redelivery)
+-- can never drive the counter negative and silently raise the effective cap.
+--
+-- KEYS[1] = running counter key
+-- Returns the counter value after release.
+-- ============================================================================
+redis.register_function('release_token', function(keys, _args)
+  local running_key = keys[1]
+  local current = tonumber(redis.call('GET', running_key) or '0')
+  if current <= 0 then
+    redis.call('SET', running_key, '0')
+    return 0
+  end
+  return redis.call('DECR', running_key)
+end)
+
+-- ============================================================================
+-- Function 7: release_lock (Per-Key Serialized Pattern)
+-- ============================================================================
+--
+-- Compare-and-delete: releases a per-key lock only if it still holds OUR token.
+-- A plain DEL could erase a lock that another worker re-acquired after our TTL
+-- expired; checking the token server-side keeps the release owner-safe.
+--
+-- KEYS[1] = lock key (e.g. running:order:42)
+-- ARGV[1] = token the caller stored when acquiring the lock (its message ID)
+-- Returns 1 if the lock was released, 0 if it was not ours (or already gone).
+-- ============================================================================
+redis.register_function('release_lock', function(keys, args)
+  local lock_key = keys[1]
+  local token = args[1]
+  if redis.call('GET', lock_key) == token then
+    return redis.call('DEL', lock_key)
+  end
+  return 0
 end)
 

@@ -29,6 +29,9 @@ public class RoutingRulesController {
 
     private final RoutingRulesService routingRulesService;
 
+    /** Maximum accepted length of a routing rule's Lua pattern (basic write-time guard). */
+    private static final int MAX_PATTERN_LENGTH = 200;
+
     // =========================================================================
     // Rules CRUD Endpoints
     // =========================================================================
@@ -106,6 +109,14 @@ public class RoutingRulesController {
             if (rule.getPattern() == null || rule.getPattern().isBlank()) {
                 response.put("success", false);
                 response.put("error", "Pattern is required");
+                return ResponseEntity.badRequest().body(response);
+            }
+            // Basic write-time guard against absurd patterns. We cannot compile a Lua
+            // pattern in Java, so the real safety net is the pcall in route_message;
+            // this just rejects obviously malicious/oversized input early.
+            if (rule.getPattern().length() > MAX_PATTERN_LENGTH) {
+                response.put("success", false);
+                response.put("error", "Pattern is too long (max " + MAX_PATTERN_LENGTH + " chars)");
                 return ResponseEntity.badRequest().body(response);
             }
             if (rule.getDestination() == null || rule.getDestination().isBlank()) {
