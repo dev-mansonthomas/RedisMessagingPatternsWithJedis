@@ -119,8 +119,10 @@ public class RedisStreamListenerService implements CommandLineRunner {
 
         public StreamMonitor(String streamName) {
             this.streamName = streamName;
-            // Start reading from the latest message
-            this.lastId = new StreamEntryID();
+            // Start reading at "$" (LAST_ENTRY): only messages arriving after startup.
+            // This avoids replaying the whole stream history on restart. The XREAD loop
+            // advances lastId to each consumed entry's ID below.
+            this.lastId = StreamEntryID.LAST_ENTRY;
         }
 
         public void stop() {

@@ -224,7 +224,10 @@ public class FanOutService implements CommandLineRunner {
         }
 
         if ("OK".equals(processingType)) {
-            // Success: copy to done stream and ACK
+            // Success: copy to done stream and ACK.
+            // At-least-once: XADD-done and XACK are not atomic. A crash between them re-delivers
+            // the event (claimed via read_claim_or_dlq after MIN_IDLE_MS), producing a duplicate done
+            // entry and possibly a DLQ route after MAX_DELIVERIES — downstream consumers must be idempotent.
             jedis.xadd(doneStream, XAddParams.xAddParams(), fields);
             jedis.xack(FANOUT_STREAM, groupName, new StreamEntryID(messageId));
 

@@ -472,6 +472,14 @@ public class RequestReplyService {
 
             log.info("[RESPONSE_PROCESSOR] Broadcasting response: correlationId={}, type={}", correlationId, responseType);
 
+            // Guard against a response entry that lacks responseType: the message has already
+            // been XACKed by the caller, so a NPE in the switch below would silently drop it.
+            // Treat a missing type as UNKNOWN and still broadcast what we have.
+            if (responseType == null) {
+                log.warn("[RESPONSE_PROCESSOR] Response {} has no responseType; treating as UNKNOWN", correlationId);
+                responseType = "UNKNOWN";
+            }
+
             // Build WebSocket event data
             Map<String, Object> eventData = new HashMap<>();
             eventData.put("correlationId", correlationId);
@@ -498,6 +506,12 @@ public class RequestReplyService {
                 }
                 case "TIMEOUT" -> {
                     // No additional data needed
+                }
+                default -> {
+                    // Unknown/unsupported response type: broadcast the base event without
+                    // type-specific data rather than throwing (message was already XACKed).
+                    log.warn("[RESPONSE_PROCESSOR] Unknown responseType '{}' for correlationId={}; broadcasting as-is",
+                        responseType, correlationId);
                 }
             }
 
