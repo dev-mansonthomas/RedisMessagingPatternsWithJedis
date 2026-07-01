@@ -15,7 +15,7 @@
   <!-- Layer 1: the demo (chat + Redis internals) comes first -->
   <div class="layout">
     <section class="panel chat-panel">
-      <div class="messages" role="log" aria-live="polite">
+      <div #messagesEl class="messages" role="log" aria-live="polite">
         @for (m of messages(); track $index) {
           <div class="bubble" [class.user]="m.role === 'user'"
             [class.assistant]="m.role === 'assistant'" [class.system]="m.role === 'system'">

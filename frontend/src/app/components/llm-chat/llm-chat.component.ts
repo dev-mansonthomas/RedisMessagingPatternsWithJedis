@@ -46,6 +46,7 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   private api = inject(LlmChatService);
   readonly diagrams = inject(DiagramDefinitionsService);
 
+  @ViewChild('messagesEl') private messagesEl?: ElementRef<HTMLDivElement>;
   @ViewChild('streamEl') private streamEl?: ElementRef<HTMLDivElement>;
 
   /**
@@ -178,8 +179,10 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private pinToBottom(): void {
-    // The transcript grows freely (no internal scroll), so only the fixed-height internals stream
-    // table is auto-followed here.
+    const m = this.messagesEl?.nativeElement;
+    if (m) {
+      m.scrollTop = m.scrollHeight;
+    }
     const s = this.streamEl?.nativeElement;
     if (s) {
       s.scrollTop = s.scrollHeight;

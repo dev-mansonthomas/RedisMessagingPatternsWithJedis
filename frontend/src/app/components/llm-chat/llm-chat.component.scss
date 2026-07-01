@@ -262,9 +262,10 @@
 }
 
 .messages {
-  // Grows to fit the whole conversation (no internal scrollbar); the page scrolls if it exceeds the
-  // viewport. min-height is ~2× the previous fixed height so the panel reads tall from the start.
-  min-height: 480px;
+  // Fixed height (doubled from the original) with an internal scrollbar, so the overall chat panel
+  // height stays constant; it auto-scrolls to the bottom as new messages/tokens arrive.
+  height: 480px;
+  overflow-y: auto;
   padding: 16px;
   display: flex;
   flex-direction: column;
