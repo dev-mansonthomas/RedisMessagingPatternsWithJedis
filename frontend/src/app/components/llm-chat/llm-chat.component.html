@@ -87,7 +87,7 @@
                     <tr>
                       <td class="mono id">{{ e.streamId }}</td>
                       <td>{{ e.role }}</td>
-                      <td class="preview">{{ e.content }}</td>
+                      <td class="preview">{{ e.content && e.content.length > 400 ? (e.content | slice:0:400) + '…' : e.content }}</td>
                     </tr>
                   }
                   @if (streamEntries().length === 0) {
