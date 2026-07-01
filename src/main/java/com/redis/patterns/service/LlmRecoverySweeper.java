@@ -90,7 +90,8 @@ public class LlmRecoverySweeper extends AbstractPerCidWorker {
             } else if ("user".equals(entry.getFields().get("role"))) {
                 log.info("Reclaimed pending {} in {} (delivery {}), regenerating",
                         entry.getID(), chatKey, deliveries);
-                responderWorker.generate(cid, chatKey, entry.getID(), entry.getFields().get("content"));
+                responderWorker.generate(cid, chatKey, entry.getID(),
+                        entry.getFields().get("content"), entry.getFields().get("msgId"));
             } else {
                 ack(chatKey, entry.getID());
             }

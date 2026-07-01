@@ -99,6 +99,16 @@ public class LlmChatService {
         return "chat:" + cid + ":dlq";
     }
 
+    /** Per-message reply-timeout key; its expiry fires a keyspace notification (see ADR-0007). */
+    public static String timeoutKey(String msgId) {
+        return "llm:timeout:" + msgId;
+    }
+
+    /** Shadow hash mapping a timeout key back to its conversation (survives the timeout key's expiry). */
+    public static String timeoutShadowKey(String msgId) {
+        return "llm:timeout:shadow:" + msgId;
+    }
+
     @PostConstruct
     void startReaper() {
         reaperActive.set(true);
@@ -137,6 +147,14 @@ public class LlmChatService {
             StreamEntryID id = jedis.xadd(chatKey(cid),
                     XAddParams.xAddParams().maxLen(CHAT_MAXLEN).approximateTrimming(), fields);
             streamId = id.toString();
+
+            // Reply-timeout: a key that must be deleted when the reply completes. If it expires first,
+            // a Redis keyspace notification (ADR-0007) tells the user the message failed. A shadow hash
+            // maps it back to this conversation (the expiry event carries only the key name).
+            long timeout = properties.getTimeoutSeconds();
+            jedis.setex(timeoutKey(msgId), timeout, "1");
+            jedis.hset(timeoutShadowKey(msgId), Map.of("cid", cid, "content", content));
+            jedis.expire(timeoutShadowKey(msgId), timeout + 60);
         }
 
         webSocketEventService.broadcastEvent(LlmChatEvent.builder()

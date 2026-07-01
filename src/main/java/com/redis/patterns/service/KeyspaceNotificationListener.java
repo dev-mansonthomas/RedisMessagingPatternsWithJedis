@@ -7,9 +7,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPubSub;
+import redis.clients.jedis.params.XAddParams;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Service that listens to Redis keyspace notifications for key expiration events.
@@ -32,6 +34,9 @@ public class KeyspaceNotificationListener extends JedisPubSub {
     private static final String SHADOW_KEY_PREFIX = "order.holdInventory.request.timeout.shadow.v1:";
     private static final String RESPONSE_FUNCTION_NAME = "response";
 
+    private static final String LLM_TIMEOUT_PREFIX = "llm:timeout:";
+    private static final String LLM_TIMEOUT_SHADOW_PREFIX = "llm:timeout:shadow:";
+
     /**
      * Called when a message is received on a pattern-subscribed channel.
      * This is triggered when a key expires in Redis.
@@ -52,6 +57,13 @@ public class KeyspaceNotificationListener extends JedisPubSub {
             String correlationId = message.substring(TIMEOUT_KEY_PREFIX.length());
             log.info("[KEYSPACE] Extracted correlationId: {}", correlationId);
             handleTimeout(correlationId);
+        }
+
+        // LLM Chat (#12) reply-timeout: a per-message key expired without the reply completing.
+        if ("__keyevent@0__:expired".equals(channel)
+                && message.startsWith(LLM_TIMEOUT_PREFIX)
+                && !message.startsWith(LLM_TIMEOUT_SHADOW_PREFIX)) {
+            handleLlmTimeout(message.substring(LLM_TIMEOUT_PREFIX.length()));
         }
     }
 
@@ -145,6 +157,38 @@ public class KeyspaceNotificationListener extends JedisPubSub {
 
         } catch (Exception e) {
             log.error("[KEYSPACE] Failed to handle timeout for correlationId={}", correlationId, e);
+        }
+    }
+
+    /**
+     * LLM Chat (#12) reply timeout: the per-message key expired before a reply completed. We read the
+     * shadow hash (which survives the expiry) to find the conversation, then post a system notice into
+     * it so the user is told their message failed — driven entirely by the Redis keyspace notification.
+     */
+    private void handleLlmTimeout(String msgId) {
+        try (var jedis = jedisPool.getResource()) {
+            String shadowKey = LlmChatService.timeoutShadowKey(msgId);
+            Map<String, String> shadow = jedis.hgetAll(shadowKey);
+            String cid = shadow == null ? null : shadow.get("cid");
+            if (cid == null) {
+                return; // reply completed in time (key + shadow already deleted) — nothing to do
+            }
+            log.warn("[KEYSPACE] ⏱️ LLM reply timeout for cid={} msgId={}", cid, msgId);
+
+            String notice = "⏱ No response within the timeout — detected via a Redis keyspace "
+                    + "notification (the per-message timeout key expired). Your message failed to get a "
+                    + "reply; if it kept failing it was routed to the Dead Letter Queue.";
+            jedis.xadd(LlmChatService.chatKey(cid),
+                    XAddParams.xAddParams().maxLen(200).approximateTrimming(),
+                    Map.of(
+                            "role", "system",
+                            "content", notice,
+                            "ts", String.valueOf(System.currentTimeMillis()),
+                            "msgId", UUID.randomUUID().toString(),
+                            "model", "timeout"));
+            jedis.del(shadowKey);
+        } catch (Exception e) {
+            log.error("[KEYSPACE] Failed to handle LLM timeout for msgId={}", msgId, e);
         }
     }
 

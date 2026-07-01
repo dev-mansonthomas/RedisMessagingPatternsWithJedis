@@ -112,14 +112,14 @@ public class LlmResponderWorker extends AbstractPerCidWorker {
             ack(chatKey, entry.getID());
             return;
         }
-        generate(cid, chatKey, entry.getID(), entry.getFields().get("content"));
+        generate(cid, chatKey, entry.getID(), entry.getFields().get("content"), entry.getFields().get("msgId"));
     }
 
     /**
      * Generate a reply for a user turn. Reusable by the recovery sweeper for reclaimed messages.
      * On any failure the message is deliberately left un-ACKed (still PENDING) so it can be recovered.
      */
-    void generate(String cid, String chatKey, StreamEntryID userEntryId, String content) {
+    void generate(String cid, String chatKey, StreamEntryID userEntryId, String content, String userMsgId) {
         String respId = UUID.randomUUID().toString();
         String tokenKey = LlmChatService.tokenKey(cid);
         StringBuilder buffer = new StringBuilder();
@@ -163,6 +163,11 @@ public class LlmResponderWorker extends AbstractPerCidWorker {
                                             "model", llmClient.modelName())).toString();
                             jedis.expire(tokenKey, TOKEN_TTL_SECONDS);
                             jedis.xack(chatKey, LlmChatService.RESPONDER_GROUP, userEntryId);
+                            // Reply delivered in time → cancel the timeout so no failure notice fires.
+                            if (userMsgId != null) {
+                                jedis.del(LlmChatService.timeoutKey(userMsgId),
+                                        LlmChatService.timeoutShadowKey(userMsgId));
+                            }
                         }
                         broadcastAssistant(cid, respId, reply, assistantId);
                     });

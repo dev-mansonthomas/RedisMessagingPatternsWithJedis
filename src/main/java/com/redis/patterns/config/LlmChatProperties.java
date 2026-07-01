@@ -23,6 +23,13 @@ public class LlmChatProperties {
     /** Bucket (ms) used to aggregate the user-tokens time series for the chart (TS.RANGE AGGREGATION). */
     private long tokenChartBucketMs = 10000;
 
+    /**
+     * Per-message reply timeout (seconds). A key is set on send and deleted when the reply completes;
+     * if it expires first, a Redis keyspace notification tells the user their message failed.
+     * Must exceed a normal/long generation and the crash-recovery window so it fires only on real failures.
+     */
+    private long timeoutSeconds = 10;
+
     /** Max concurrent conversations kept alive; least-recently-used ones are evicted beyond this. */
     private int maxConversations = 100;
 

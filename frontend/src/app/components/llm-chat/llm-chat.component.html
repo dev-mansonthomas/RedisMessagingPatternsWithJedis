@@ -286,9 +286,15 @@
     see the internals panel above.</p>
 
     <p class="fanout-note resilience">♻️ <strong>Resilience:</strong> a per-cid sweeper <code>XAUTOCLAIM</code>s
-    messages a worker took but never <code>XACK</code>ed (idle {{ '>' }} minIdle) and regenerates them —
-    so a crash mid-generation still gets a reply. After <code>maxDeliveries</code> failed attempts the
-    message is routed to <code>chat:{{ cid }}:dlq</code>. Try the <em>Kill worker</em> button, or send
-    <code>/fail …</code> to watch a message land in the DLQ.</p>
+    messages a worker took but never <code>XACK</code>ed (idle beyond minIdle) and regenerates them —
+    so a crash mid-generation still gets a reply (<em>Kill &amp; recovery</em>). After
+    <code>maxDeliveries</code> failed attempts the message is routed to <code>chat:{{ cid }}:dlq</code>
+    (<em>Kill &amp; DLQ</em>).</p>
+
+    <p class="fanout-note timeout">⏱ <strong>Reply timeout (Redis keyspace notifications):</strong> each
+    message sets a short-lived key <code>llm:timeout:{{ '{' }}msgId{{ '}' }}</code> that's deleted when the
+    reply completes. If it <em>expires</em> first, Redis fires a keyspace <code>expired</code> event
+    (<code>notify-keyspace-events Ex</code>) that a listener turns into a ⏱ system notice here — so you're
+    told when a message failed to get a reply, without polling. Same mechanism as Request/Reply (ADR-0007).</p>
   </div>
 </div>

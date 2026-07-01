@@ -241,6 +241,12 @@
     background: #fff7ed;
     border-color: #fed7aa;
   }
+
+  &.timeout {
+    margin-top: 10px;
+    background: #f5f3ff;
+    border-color: #ddd6fe;
+  }
 }
 
 .layout {

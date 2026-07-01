@@ -117,6 +117,15 @@ class LlmChatServiceTest extends AbstractRedisIntegrationTest {
     }
 
     @Test
+    void postMessageSetsReplyTimeoutKeyAndShadow() {
+        MessagePosted posted = service.postMessage("conv1", "hi");
+        try (var jedis = jedisPool.getResource()) {
+            assertThat(jedis.exists("llm:timeout:" + posted.msgId())).isTrue();
+            assertThat(jedis.hget("llm:timeout:shadow:" + posted.msgId(), "cid")).isEqualTo("conv1");
+        }
+    }
+
+    @Test
     void invalidCidIsRejected() {
         assertThatThrownBy(() -> service.postMessage("bad id!", "x"))
                 .isInstanceOf(IllegalArgumentException.class);
