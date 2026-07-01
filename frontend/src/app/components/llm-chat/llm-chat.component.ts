@@ -182,6 +182,13 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     });
   }
 
+  killWorker(): void {
+    this.api.killWorker(this.cid).subscribe({
+      next: () => this.refresh(),
+      error: err => console.error('kill-worker failed', err)
+    });
+  }
+
   refresh(): void {
     this.loadHistory();
     this.refreshGroups();

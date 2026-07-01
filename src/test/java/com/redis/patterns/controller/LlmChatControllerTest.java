@@ -88,7 +88,7 @@ class LlmChatControllerTest {
     void groupsReturnsObject() throws Exception {
         when(service.groups("conv1"))
                 .thenReturn(new GroupsInfo("chat:conv1", 2, "chat:conv1:tok", 5, List.of(),
-                        List.of(), java.util.Map.of()));
+                        List.of(), java.util.Map.of(), "chat:conv1:dlq", List.of()));
 
         mvc.perform(get("/llm-chat/conv1/groups"))
                 .andExpect(status().isOk())
@@ -101,5 +101,12 @@ class LlmChatControllerTest {
         mvc.perform(post("/llm-chat/conv1/reset"))
                 .andExpect(status().isNoContent());
         verify(service).reset("conv1");
+    }
+
+    @Test
+    void killWorkerReturnsNoContent() throws Exception {
+        mvc.perform(post("/llm-chat/conv1/kill-worker"))
+                .andExpect(status().isNoContent());
+        verify(service).killWorker("conv1");
     }
 }

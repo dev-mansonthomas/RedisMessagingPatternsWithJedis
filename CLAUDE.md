@@ -36,7 +36,7 @@ observability over hardening.
 - **Lua lint:** `luacheck lua/ --globals redis cjson cmsgpack bit` (luacheck 1.2.0, Lua 5.1) →
   0 errors, 5 cosmetic warnings (long line / trailing whitespace).
 - **Backend tests:** `mvn test` — the LLM Chat pattern (#12) introduced the first backend tests
-  (`src/test/java/com/redis/patterns/`; 35 tests incl. fan-out moderation/analytics). Integration tests use a real Redis started via the **docker
+  (`src/test/java/com/redis/patterns/`; 40 tests incl. fan-out + XAUTOCLAIM recovery/DLQ). Integration tests use a real Redis started via the **docker
   CLI** (`support/AbstractRedisIntegrationTest`), not Testcontainers — the bundled docker-java
   negotiates Docker API v1.32, which this engine (min v1.40) rejects. Tests **skip** (not fail) when
   Docker is unavailable. No other pattern has tests yet.
@@ -69,7 +69,7 @@ observability over hardening.
 | `/scheduled-messages` | Scheduled/Delayed Messages | Sorted Set + Hash + Stream | `scheduled.messages`, `reminders.v1` |
 | `/per-key-serialized` | Per-Key Serialized | Stream + `SET NX` lock per key | `jobs.perkey.v1`, `running:order:{id}` |
 | `/token-bucket` | Token Bucket (concurrency cap) | Stream + Lua counter | `token-bucket.jobs.v1` |
-| `/llm-chat` | LLM Chat (Streams) | Stream + **3 groups** (`cg:responder`/`cg:moderation`/`cg:analytics`, fan-out) + per-conv token stream; analytics uses RedisTimeSeries | `chat:{cid}` (cid=`companyId:userId`), `chat:{cid}:tok`, `chat:{cid}:flags`, `chat:{cid}:stats`, `ts:{cid}:userTokens` |
+| `/llm-chat` | LLM Chat (Streams) | Stream + **3 groups** (`cg:responder`/`cg:moderation`/`cg:analytics`, fan-out) + per-conv token stream; RedisTimeSeries analytics; **`XAUTOCLAIM` recovery sweeper + DLQ** (kill-worker/`/fail` poison demos) | `chat:{cid}` (cid=`companyId:userId`), `chat:{cid}:tok`, `chat:{cid}:flags`, `chat:{cid}:stats`, `ts:{cid}:userTokens`, `chat:{cid}:dlq` |
 
 Full contracts: `docs/specs/<pattern>.md`. System design: `docs/architecture/overview.md`.
 Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.

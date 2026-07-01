@@ -27,6 +27,13 @@ export interface Flag {
   ts?: number;
 }
 
+export interface DlqEntry {
+  streamId: string;
+  msgId: string;
+  content: string;
+  reason: string;
+}
+
 export interface GroupsInfo {
   stream: string;
   length: number;
@@ -35,6 +42,8 @@ export interface GroupsInfo {
   groups: GroupInfo[];
   flags: Flag[];
   stats: Record<string, string>;
+  dlqStream: string;
+  dlq: DlqEntry[];
 }
 
 export interface MessagePosted {
@@ -67,5 +76,9 @@ export class LlmChatService {
 
   reset(cid: string): Observable<void> {
     return this.http.post<void>(`${this.baseUrl}/${cid}/reset`, {});
+  }
+
+  killWorker(cid: string): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/${cid}/kill-worker`, {});
   }
 }

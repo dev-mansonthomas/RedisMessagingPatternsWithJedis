@@ -18,6 +18,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -45,9 +47,23 @@ public class LlmResponderWorker extends AbstractPerCidWorker {
     private final LlmClient llmClient;
     private final LlmChatProperties properties;
 
+    /** Per-cid one-shot "kill" flag: aborts the next generation before XACK (demo crash). */
+    private final Map<String, AtomicBoolean> killArmed = new ConcurrentHashMap<>();
+
     @Override
     protected String threadNamePrefix() {
         return "llm-responder-";
+    }
+
+    /** Arm a one-shot crash: the next generation for {@code cid} aborts before XACK. */
+    public void armKill(String cid) {
+        killArmed.computeIfAbsent(cid, k -> new AtomicBoolean()).set(true);
+    }
+
+    @Override
+    public void stopFor(String cid) {
+        killArmed.remove(cid);
+        super.stopFor(cid);
     }
 
     @Override
@@ -88,15 +104,27 @@ public class LlmResponderWorker extends AbstractPerCidWorker {
             ack(chatKey, entry.getID());
             return;
         }
-        generate(cid, chatKey, entry.getID());
+        generate(cid, chatKey, entry.getID(), entry.getFields().get("content"));
     }
 
-    private void generate(String cid, String chatKey, StreamEntryID userEntryId) {
+    /**
+     * Generate a reply for a user turn. Reusable by the recovery sweeper for reclaimed messages.
+     * On any failure the message is deliberately left un-ACKed (still PENDING) so it can be recovered.
+     */
+    void generate(String cid, String chatKey, StreamEntryID userEntryId, String content) {
         String respId = UUID.randomUUID().toString();
         String tokenKey = LlmChatService.tokenKey(cid);
         StringBuilder buffer = new StringBuilder();
 
         try {
+            // Demo crash: a one-shot kill aborts before XACK, leaving the message pending for the sweeper.
+            if (killArmed.computeIfAbsent(cid, k -> new AtomicBoolean()).getAndSet(false)) {
+                throw new IllegalStateException("worker killed (demo) before XACK");
+            }
+            // Poison message: always fails -> reclaimed up to maxDeliveries -> routed to the DLQ.
+            if (content != null && content.startsWith(properties.getResilience().getPoisonPrefix())) {
+                throw new IllegalStateException("poison message: generation intentionally failed");
+            }
             List<Turn> context = readContextUpTo(chatKey, userEntryId);
 
             llmClient.generate(context,
@@ -111,27 +139,30 @@ public class LlmResponderWorker extends AbstractPerCidWorker {
                         }
                     },
                     () -> {
-                        String content = buffer.toString();
+                        String reply = buffer.toString();
                         String assistantId;
                         try (var jedis = jedisPool.getResource()) {
                             assistantId = jedis.xadd(chatKey, XAddParams.xAddParams(),
                                     Map.of(
                                             "role", "assistant",
-                                            "content", content,
+                                            "content", reply,
                                             "ts", String.valueOf(System.currentTimeMillis()),
                                             "msgId", respId,
                                             "model", llmClient.modelName())).toString();
                             jedis.expire(tokenKey, TOKEN_TTL_SECONDS);
                             jedis.xack(chatKey, LlmChatService.RESPONDER_GROUP, userEntryId);
                         }
-                        broadcastAssistant(cid, respId, content, assistantId);
+                        broadcastAssistant(cid, respId, reply, assistantId);
                     });
         } catch (Exception e) {
-            // A failure mid-generation must not leave the UI stuck "typing": emit a terminal
-            // assistant event with whatever was produced. Do NOT XACK — the user entry stays
-            // pending so a future recovery pass (Slice 3 XAUTOCLAIM) can retry it.
-            log.warn("Generation failed for {} (msgId={}): {}", chatKey, respId, e.getMessage());
-            broadcastAssistant(cid, respId, buffer.toString(), null);
+            // Do NOT XACK — the user entry stays PENDING so the recovery sweeper (XAUTOCLAIM) can
+            // retry it or route it to the DLQ. Only surface a terminal bubble if we actually streamed
+            // something; a clean abort (kill/poison) leaves nothing so the recovered reply is pristine.
+            log.warn("Generation failed for {} (msgId={}): {} — left pending for recovery",
+                    chatKey, respId, e.getMessage());
+            if (buffer.length() > 0) {
+                broadcastAssistant(cid, respId, buffer.toString(), null);
+            }
         }
     }
 

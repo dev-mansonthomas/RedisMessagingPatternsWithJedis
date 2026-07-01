@@ -620,12 +620,14 @@ export class DiagramDefinitionsService {
         T[("⌨️ chat:cid:tok<br/>Token Stream (capped)")]
         F[("🚩 chat:cid:flags")]
         ST[("📈 chat:cid:stats + ts:cid:userTokens")]
+        DLQ[("💀 chat:cid:dlq")]
     end
 
     subgraph Workers["⚙️ Virtual Threads (per conversation) — fan-out: 3 groups, same stream"]
         R["🤖 Responder<br/>cg:responder"]
         M["🛡️ Moderation<br/>cg:moderation"]
         A["📊 Analytics<br/>cg:analytics"]
+        SW["♻️ Recovery Sweeper<br/>XAUTOCLAIM"]
         TL["📡 Token Listener"]
     end
 
@@ -641,6 +643,8 @@ export class DiagramDefinitionsService {
     R -->|"XADD role=assistant + XACK"| S
     M -->|"XADD flag (keyword)"| F
     A -->|"HINCRBY / TS.ADD"| ST
+    SW -->|"XAUTOCLAIM stale pending → regenerate"| S
+    SW -->|"XADD (max deliveries)"| DLQ
     T -->|"XREAD BLOCK"| TL
     TL -->|"WebSocket (filtered by cid)"| UI
 
@@ -649,6 +653,7 @@ export class DiagramDefinitionsService {
     style T fill:#8e44ad,color:#fff
     style F fill:#e11d48,color:#fff
     style ST fill:#0891b2,color:#fff
+    style DLQ fill:#6b7280,color:#fff
     style LLM fill:#f39c12,color:#000`,
     sequence: `sequenceDiagram
     autonumber

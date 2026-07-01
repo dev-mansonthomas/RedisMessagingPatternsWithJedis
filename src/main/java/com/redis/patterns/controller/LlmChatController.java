@@ -68,6 +68,13 @@ public class LlmChatController {
         service.reset(cid);
     }
 
+    /** Demo crash: the next generation dies before XACK, so the sweeper recovers it via XAUTOCLAIM. */
+    @PostMapping("/{cid}/kill-worker")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void killWorker(@PathVariable @Pattern(regexp = CID_REGEX) String cid) {
+        service.killWorker(cid);
+    }
+
     /** Invalid {@code cid} (path-variable constraint) or bad argument → 400 rather than 500. */
     @ExceptionHandler({ConstraintViolationException.class, IllegalArgumentException.class})
     public ResponseEntity<Map<String, String>> handleBadRequest(Exception e) {

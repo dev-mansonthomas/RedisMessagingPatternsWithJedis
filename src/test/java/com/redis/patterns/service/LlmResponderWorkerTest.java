@@ -140,6 +140,37 @@ class LlmResponderWorkerTest extends AbstractRedisIntegrationTest {
     }
 
     @Test
+    void armedKillLeavesMessagePendingWithoutReply() {
+        String chatKey = "chat:conv4";
+        createGroup(chatKey);
+        worker.armKill("conv4");
+        worker.startFor("conv4");
+        addUserMessage(chatKey, "hello there");
+
+        // The message is delivered (pending) but generation aborts before XACK → no assistant turn.
+        awaitUntil(Duration.ofSeconds(10), () -> {
+            try (var jedis = jedisPool.getResource()) {
+                return jedis.xpending(chatKey, LlmChatService.RESPONDER_GROUP).getTotal() == 1;
+            }
+        });
+        sleep(500); // grace: ensure no reply is produced
+
+        try (var jedis = jedisPool.getResource()) {
+            assertThat(jedis.xlen(chatKey)).isEqualTo(1); // only the user turn
+            assertThat(jedis.exists("chat:conv4:tok")).isFalse();
+            assertThat(jedis.xpending(chatKey, LlmChatService.RESPONDER_GROUP).getTotal()).isEqualTo(1);
+        }
+    }
+
+    private static void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    @Test
     void nonUserEntryIsAckedWithoutGenerating() {
         String chatKey = "chat:conv2";
         createGroup(chatKey);
