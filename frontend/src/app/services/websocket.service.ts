@@ -30,7 +30,7 @@ export class WebSocketService {
   private eventSubject = new Subject<DLQEvent>();
   private connectionStatus = new Subject<boolean>();
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
+  private maxReconnectAttempts = 1000; // keep retrying; a demo left open shouldn't silently go dead
   private reconnectDelay = 3000;
   private isConnecting = false;
   private connected = false; // Track connection state manually
@@ -144,6 +144,20 @@ export class WebSocketService {
    */
   isConnected(): boolean {
     return this.connected;
+  }
+
+  /**
+   * Send a JSON payload to the server (e.g. an LLM-chat {type:'subscribe',cid} frame).
+   * No-op if the socket isn't connected.
+   */
+  send(payload: unknown): void {
+    if (this.socket && this.connected) {
+      try {
+        this.socket.send(JSON.stringify(payload));
+      } catch (error) {
+        console.error('Failed to send WebSocket message:', error);
+      }
+    }
   }
 }
 

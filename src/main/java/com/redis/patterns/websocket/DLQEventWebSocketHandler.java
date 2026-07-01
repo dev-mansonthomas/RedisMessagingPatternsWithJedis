@@ -2,7 +2,10 @@ package com.redis.patterns.websocket;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redis.patterns.service.WebSocketEventService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.lang.NonNull;
@@ -33,8 +36,12 @@ import org.slf4j.LoggerFactory;
 public class DLQEventWebSocketHandler extends TextWebSocketHandler {
 
     private static final Logger log = LoggerFactory.getLogger(DLQEventWebSocketHandler.class);
+    /** Same shape as the server-side cid validation, so we never store a malformed subscription. */
+    private static final Pattern CID_PATTERN = Pattern.compile("^[A-Za-z0-9:_-]{1,64}$");
+
     private final Set<WebSocketSession> sessions = ConcurrentHashMap.newKeySet();
     private final WebSocketEventService webSocketEventService;
+    private final ObjectMapper objectMapper;
 
     /**
      * Called when a new WebSocket connection is established.
@@ -100,8 +107,24 @@ public class DLQEventWebSocketHandler extends TextWebSocketHandler {
      */
     @Override
     protected void handleTextMessage(@NonNull WebSocketSession session, @NonNull TextMessage message) throws Exception {
-        log.debug("Received message from client {}: {}", session.getId(), message.getPayload());
-        // Currently not handling client messages, but can be extended
+        String payload = message.getPayload();
+        log.debug("Received message from client {}: {}", session.getId(), payload);
+
+        // LLM Chat (#12) clients send {"type":"subscribe","cid":"..."} to receive only their own
+        // conversation's events. We record the cid on the session; broadcastEvent(LlmChatEvent)
+        // then delivers matching events only. Malformed frames are ignored.
+        try {
+            JsonNode node = objectMapper.readTree(payload);
+            if ("subscribe".equals(node.path("type").asText())) {
+                String cid = node.path("cid").asText(null);
+                if (cid != null && CID_PATTERN.matcher(cid).matches()) {
+                    session.getAttributes().put(WebSocketEventService.LLM_CID_ATTRIBUTE, cid);
+                    log.debug("Session {} subscribed to LLM conversation {}", session.getId(), cid);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Ignoring non-JSON/unhandled client message from {}", session.getId());
+        }
     }
 }
 

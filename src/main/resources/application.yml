@@ -34,6 +34,16 @@ dlq:
   default-count: 100
   default-max-deliveries: 2
 
+# LLM Chat pattern (#12) Configuration
+llm:
+  client: ${LLM_CLIENT:mock}                          # slice 1 supports only 'mock'
+  context-size: ${LLM_CONTEXT_SIZE:20}                # most-recent turns fed back as context
+  max-conversations: ${LLM_MAX_CONVERSATIONS:100}     # LRU cap on live per-cid workers
+  conversation-idle-ttl-ms: ${LLM_CONV_IDLE_TTL_MS:1800000}  # reap idle conversations after 30m
+  reaper-interval-ms: ${LLM_REAPER_INTERVAL_MS:60000}
+  mock:
+    token-delay-ms: ${LLM_MOCK_TOKEN_DELAY_MS:40}
+
 # Logging Configuration
 logging:
   level:

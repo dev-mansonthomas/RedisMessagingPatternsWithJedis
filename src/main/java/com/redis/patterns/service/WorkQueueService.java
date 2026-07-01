@@ -78,16 +78,7 @@ public class WorkQueueService implements CommandLineRunner {
      */
     private void initializeConsumerGroup() {
         try (var jedis = jedisPool.getResource()) {
-            try {
-                jedis.xgroupCreate(JOB_STREAM, JOB_GROUP, new StreamEntryID(), true);
-                log.info("Consumer group '{}' created for stream '{}'", JOB_GROUP, JOB_STREAM);
-            } catch (Exception e) {
-                if (e.getMessage() != null && e.getMessage().contains("BUSYGROUP")) {
-                    log.info("Consumer group '{}' already exists", JOB_GROUP);
-                } else {
-                    throw e;
-                }
-            }
+            RedisStreamSupport.ensureGroup(jedis, JOB_STREAM, JOB_GROUP, new StreamEntryID());
         }
     }
 

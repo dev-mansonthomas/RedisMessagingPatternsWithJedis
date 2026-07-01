@@ -51,6 +51,10 @@ export const routes: Routes = [
     loadComponent: () => import('./components/token-bucket/token-bucket.component').then(m => m.TokenBucketComponent)
   },
   {
+    path: 'llm-chat',
+    loadComponent: () => import('./components/llm-chat/llm-chat.component').then(m => m.LlmChatComponent)
+  },
+  {
     path: '**',
     redirectTo: '/dlq'
   }
