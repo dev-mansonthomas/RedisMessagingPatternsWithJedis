@@ -31,13 +31,17 @@ class LlmChatServiceTest extends AbstractRedisIntegrationTest {
     private LlmChatService service;
     private LlmResponderWorker responder;
     private LlmTokenListenerService listener;
+    private LlmModerationWorker moderation;
+    private LlmAnalyticsWorker analytics;
 
     @BeforeEach
     void setUpService() {
         responder = mock(LlmResponderWorker.class);
         listener = mock(LlmTokenListenerService.class);
+        moderation = mock(LlmModerationWorker.class);
+        analytics = mock(LlmAnalyticsWorker.class);
         service = new LlmChatService(jedisPool, new WebSocketEventService(new ObjectMapper()),
-                responder, listener, new LlmChatProperties());
+                responder, listener, moderation, analytics, new LlmChatProperties());
     }
 
     @Test
@@ -172,5 +176,18 @@ class LlmChatServiceTest extends AbstractRedisIntegrationTest {
         // Without this, the responder would keep looping XREADGROUP against a now-deleted group.
         verify(responder).stopFor("conv1");
         verify(listener).stopFor("conv1");
+        verify(moderation).stopFor("conv1");
+        verify(analytics).stopFor("conv1");
+    }
+
+    @Test
+    void ensureConversationCreatesAllThreeFanOutGroups() {
+        service.ensureConversation("conv1");
+        service.postMessage("conv1", "hi");
+
+        assertThat(service.groups("conv1").groups())
+                .extracting(LlmChatService.GroupInfo::name)
+                .contains(LlmChatService.RESPONDER_GROUP, LlmChatService.MODERATION_GROUP,
+                        LlmChatService.ANALYTICS_GROUP);
     }
 }

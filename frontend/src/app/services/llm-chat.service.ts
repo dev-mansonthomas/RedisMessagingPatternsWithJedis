@@ -19,12 +19,22 @@ export interface GroupInfo {
   lastDeliveredId?: string;
 }
 
+export interface Flag {
+  streamId: string;
+  msgId: string;
+  term: string;
+  reason: string;
+  ts?: number;
+}
+
 export interface GroupsInfo {
   stream: string;
   length: number;
   tokenStream: string;
   tokenStreamLength: number;
   groups: GroupInfo[];
+  flags: Flag[];
+  stats: Record<string, string>;
 }
 
 export interface MessagePosted {

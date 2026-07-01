@@ -93,6 +93,32 @@
                 }
               </tbody>
             </table>
+
+            <h4>🛡️ Moderation flags (cg:moderation)</h4>
+            <table class="grid">
+              <thead>
+                <tr><th>msgId</th><th>term</th><th>reason</th></tr>
+              </thead>
+              <tbody>
+                @for (f of g.flags; track f.streamId) {
+                  <tr>
+                    <td class="mono">{{ f.msgId }}</td>
+                    <td class="hot">{{ f.term }}</td>
+                    <td class="preview">{{ f.reason }}</td>
+                  </tr>
+                }
+                @if (g.flags.length === 0) {
+                  <tr><td colspan="3" class="muted">No flags — try a message with "password" or "secret".</td></tr>
+                }
+              </tbody>
+            </table>
+
+            <h4>📊 Analytics (cg:analytics)</h4>
+            <div class="tiles">
+              <div class="tile"><span class="tile-val">{{ g.stats['userMessages'] || '0' }}</span><span class="tile-lbl">user messages</span></div>
+              <div class="tile"><span class="tile-val">{{ g.stats['userTokens'] || '0' }}</span><span class="tile-lbl">user tokens</span></div>
+            </div>
+            <p class="ts-note">RedisTimeSeries series: <code>ts:{{ cid }}:userTokens</code></p>
           } @else {
             <p class="muted">Waiting for stream data…</p>
           }
@@ -180,5 +206,11 @@
         them, so the answer appears word by word, at the pace the LLM generates it.</p>
       </div>
     </div>
+
+    <p class="fanout-note">🔀 <strong>Fan-out:</strong> the <em>same</em> <code>chat:{{ cid }}</code> stream also feeds
+    two more consumer groups in parallel — <code>cg:moderation</code> (flags user messages containing a
+    keyword → <code>chat:{{ cid }}:flags</code>) and <code>cg:analytics</code> (counters +
+    <code>TS.ADD</code> to <code>ts:{{ cid }}:userTokens</code>). Three groups, one stream, no copy —
+    see the internals panel above.</p>
   </div>
 </div>

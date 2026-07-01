@@ -343,16 +343,17 @@ Detailed contracts (Redis keys, endpoints, edge cases) live in [`docs/specs/`](d
 ### 12. 🤖 LLM Chat (Streams) — `/llm-chat`
 
 **What it solves**: Persist and stream an LLM conversation entirely through Redis Streams — durable,
-replayable context; token-by-token streaming; a live "Redis internals" view of the consumer group.
-Slice 1 uses a deterministic mock model (offline, no API key, no cost); fan-out to
-moderation/analytics and `XAUTOCLAIM` crash recovery are on the roadmap.
+replayable context; token-by-token streaming; **fan-out** to moderation + analytics groups (same
+stream, no copy); a live "Redis internals" view. Uses a deterministic mock model (offline, no API
+key, no cost); `XAUTOCLAIM` crash recovery + Ollama are on the roadmap.
 
 **Use case**: Enterprise assistants where conversation auditability, replay and operability matter.
 
-**Key concepts**: One stream per conversation (`chat:{cid}`); `cg:responder` consumer group; a
-per-conversation token stream (`chat:{cid}:tok`) demuxed by `msgId`; `XREVRANGE` context window.
-Pluggable `LlmClient` (mock default, optional Ollama later). See
-[`docs/diagrams/llm-chat.md`](docs/diagrams/llm-chat.md).
+**Key concepts**: One stream per conversation (`chat:{cid}`, keyed `companyId:userId`); **three
+consumer groups on the same stream** — `cg:responder` (generate), `cg:moderation` (keyword flags →
+`chat:{cid}:flags`), `cg:analytics` (`HINCRBY` stats + `TS.ADD` RedisTimeSeries); per-conversation
+token stream (`chat:{cid}:tok`) demuxed by `msgId`; `XREVRANGE` context window. Pluggable `LlmClient`
+(mock default, optional Ollama later). See [`docs/diagrams/llm-chat.md`](docs/diagrams/llm-chat.md).
 
 ---
 

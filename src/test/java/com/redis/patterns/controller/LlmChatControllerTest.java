@@ -87,7 +87,8 @@ class LlmChatControllerTest {
     @Test
     void groupsReturnsObject() throws Exception {
         when(service.groups("conv1"))
-                .thenReturn(new GroupsInfo("chat:conv1", 2, "chat:conv1:tok", 5, List.of()));
+                .thenReturn(new GroupsInfo("chat:conv1", 2, "chat:conv1:tok", 5, List.of(),
+                        List.of(), java.util.Map.of()));
 
         mvc.perform(get("/llm-chat/conv1/groups"))
                 .andExpect(status().isOk())

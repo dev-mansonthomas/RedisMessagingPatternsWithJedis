@@ -618,10 +618,14 @@ export class DiagramDefinitionsService {
     subgraph Redis["🔴 Redis"]
         S[("💬 chat:cid<br/>Conversation Stream")]
         T[("⌨️ chat:cid:tok<br/>Token Stream (capped)")]
+        F[("🚩 chat:cid:flags")]
+        ST[("📈 chat:cid:stats + ts:cid:userTokens")]
     end
 
-    subgraph Workers["⚙️ Virtual Threads (per conversation)"]
+    subgraph Workers["⚙️ Virtual Threads (per conversation) — fan-out: 3 groups, same stream"]
         R["🤖 Responder<br/>cg:responder"]
+        M["🛡️ Moderation<br/>cg:moderation"]
+        A["📊 Analytics<br/>cg:analytics"]
         TL["📡 Token Listener"]
     end
 
@@ -629,16 +633,22 @@ export class DiagramDefinitionsService {
 
     UI -->|"POST message<br/>XADD role=user"| S
     S -->|"XREADGROUP cg:responder"| R
+    S -->|"XREADGROUP cg:moderation"| M
+    S -->|"XREADGROUP cg:analytics"| A
     R -->|"XREVRANGE (context)"| S
     R -->|"generate"| LLM
     R -->|"XADD token"| T
     R -->|"XADD role=assistant + XACK"| S
+    M -->|"XADD flag (keyword)"| F
+    A -->|"HINCRBY / TS.ADD"| ST
     T -->|"XREAD BLOCK"| TL
     TL -->|"WebSocket (filtered by cid)"| UI
 
     style Redis fill:#dc382d,color:#fff
     style S fill:#3498db,color:#fff
     style T fill:#8e44ad,color:#fff
+    style F fill:#e11d48,color:#fff
+    style ST fill:#0891b2,color:#fff
     style LLM fill:#f39c12,color:#000`,
     sequence: `sequenceDiagram
     autonumber
