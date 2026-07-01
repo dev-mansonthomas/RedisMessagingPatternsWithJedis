@@ -9,10 +9,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.StreamEntryID;
+import redis.clients.jedis.commands.ProtocolCommand;
 import redis.clients.jedis.params.XAddParams;
+import redis.clients.jedis.params.XPendingParams;
 import redis.clients.jedis.resps.StreamEntry;
 import redis.clients.jedis.resps.StreamGroupInfo;
+import redis.clients.jedis.resps.StreamPendingEntry;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +55,7 @@ public class LlmChatService {
     public static final String MODERATION_GROUP = "cg:moderation";
     public static final String ANALYTICS_GROUP = "cg:analytics";
     private static final long CHAT_MAXLEN = 200;
+    private static final ProtocolCommand TS_RANGE = () -> "TS.RANGE".getBytes(StandardCharsets.UTF_8);
 
     private final JedisPool jedisPool;
     private final WebSocketEventService webSocketEventService;
@@ -94,6 +99,16 @@ public class LlmChatService {
         return "chat:" + cid + ":dlq";
     }
 
+    /** Per-message reply-timeout key; its expiry fires a keyspace notification (see ADR-0007). */
+    public static String timeoutKey(String msgId) {
+        return "llm:timeout:" + msgId;
+    }
+
+    /** Shadow hash mapping a timeout key back to its conversation (survives the timeout key's expiry). */
+    public static String timeoutShadowKey(String msgId) {
+        return "llm:timeout:shadow:" + msgId;
+    }
+
     @PostConstruct
     void startReaper() {
         reaperActive.set(true);
@@ -132,6 +147,14 @@ public class LlmChatService {
             StreamEntryID id = jedis.xadd(chatKey(cid),
                     XAddParams.xAddParams().maxLen(CHAT_MAXLEN).approximateTrimming(), fields);
             streamId = id.toString();
+
+            // Reply-timeout: a key that must be deleted when the reply completes. If it expires first,
+            // a Redis keyspace notification (ADR-0007) tells the user the message failed. A shadow hash
+            // maps it back to this conversation (the expiry event carries only the key name).
+            long timeout = properties.getTimeoutSeconds();
+            jedis.setex(timeoutKey(msgId), timeout, "1");
+            jedis.hset(timeoutShadowKey(msgId), Map.of("cid", cid, "content", content));
+            jedis.expire(timeoutShadowKey(msgId), timeout + 60);
         }
 
         webSocketEventService.broadcastEvent(LlmChatEvent.builder()
@@ -225,7 +248,8 @@ public class LlmChatService {
                         g.getConsumers(),
                         g.getPending(),
                         lag instanceof Number n ? n.longValue() : null,
-                        g.getLastDeliveredId() == null ? null : g.getLastDeliveredId().toString()));
+                        g.getLastDeliveredId() == null ? null : g.getLastDeliveredId().toString(),
+                        pendingState(jedis, cid, g)));
             }
             // Fan-out outputs: moderation flags + analytics counters.
             if (jedis.exists(flagsKey(cid))) {
@@ -265,6 +289,68 @@ public class LlmChatService {
                 .ts(System.currentTimeMillis())
                 .build());
         log.info("Reset conversation {}", cid);
+    }
+
+    /**
+     * Classify a group's pending: {@code "processing"} (a live worker is actively generating — a
+     * normal wait) vs {@code "failing"} (pending but nobody is working on it — killed/crashed/poison,
+     * awaiting sweeper reclaim). Only the responder group can "fail"; the fan-out groups ACK inline.
+     */
+    private String pendingState(redis.clients.jedis.Jedis jedis, String cid, StreamGroupInfo g) {
+        if (g.getPending() == 0) {
+            return null;
+        }
+        if (!RESPONDER_GROUP.equals(g.getName())) {
+            return "processing";
+        }
+        for (StreamPendingEntry pe : jedis.xpending(chatKey(cid), RESPONDER_GROUP,
+                XPendingParams.xPendingParams()
+                        .start(StreamEntryID.MINIMUM_ID).end(StreamEntryID.MAXIMUM_ID).count(50))) {
+            if (!responderWorker.isInFlight(cid, pe.getID())) {
+                return "failing"; // delivered but no live worker is generating it
+            }
+        }
+        return "processing";
+    }
+
+    /** Analytics time series (user tokens per message over time) for the chart, via {@code TS.RANGE}. */
+    public List<SeriesPoint> tokenSeries(String cid) {
+        validateCid(cid);
+        List<SeriesPoint> points = new ArrayList<>();
+        try (var jedis = jedisPool.getResource()) {
+            if (!jedis.exists(tokensSeriesKey(cid))) {
+                return points;
+            }
+            // Aggregate tokens into fixed time buckets so bursts read as taller bars and the x-axis
+            // reflects send rate (rather than one bar per message).
+            String bucket = String.valueOf(properties.getTokenChartBucketMs());
+            Object raw = jedis.sendCommand(TS_RANGE, tokensSeriesKey(cid), "-", "+",
+                    "AGGREGATION", "sum", bucket);
+            if (raw instanceof List<?> list) {
+                for (Object o : list) {
+                    if (o instanceof List<?> pair && pair.size() >= 2) {
+                        points.add(new SeriesPoint(toLong(pair.get(0)), toDouble(pair.get(1))));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("token series unavailable for {}: {}", cid, e.getMessage());
+        }
+        return points;
+    }
+
+    private static long toLong(Object o) {
+        if (o instanceof Long l) {
+            return l;
+        }
+        return Long.parseLong(new String((byte[]) o, StandardCharsets.UTF_8));
+    }
+
+    private static double toDouble(Object o) {
+        if (o instanceof byte[] b) {
+            return Double.parseDouble(new String(b, StandardCharsets.UTF_8));
+        }
+        return Double.parseDouble(String.valueOf(o));
     }
 
     /** Stop the per-cid workers and drop the conversation from the active registry (keys untouched). */
@@ -354,9 +440,12 @@ public class LlmChatService {
                              List<GroupInfo> groups, List<Flag> flags, Map<String, String> stats,
                              String dlqStream, List<DlqEntry> dlq) {}
 
-    public record GroupInfo(String name, long consumers, long pending, Long lag, String lastDeliveredId) {}
+    public record GroupInfo(String name, long consumers, long pending, Long lag, String lastDeliveredId,
+                            String pendingState) {}
 
     public record Flag(String streamId, String msgId, String term, String reason, Long ts) {}
 
     public record DlqEntry(String streamId, String msgId, String content, String reason) {}
+
+    public record SeriesPoint(long ts, double value) {}
 }

@@ -1,17 +1,17 @@
 import {
-  Component, OnDestroy, OnInit, signal, computed, effect, inject,
+  Component, OnDestroy, OnInit, signal, computed, inject,
   ElementRef, ViewChild, AfterViewChecked
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { WebSocketService } from '../../services/websocket.service';
-import { ChatTurn, GroupsInfo, LlmChatService } from '../../services/llm-chat.service';
+import { ChatTurn, GroupsInfo, LlmChatService, SeriesPoint } from '../../services/llm-chat.service';
 import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 
 interface ChatMessage {
-  role: 'user' | 'assistant';
+  role: string; // 'user' | 'assistant' | 'system' (moderation policy notice)
   content: string;
   complete: boolean;
   msgId?: string;
@@ -47,6 +47,7 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   readonly diagrams = inject(DiagramDefinitionsService);
 
   @ViewChild('messagesEl') private messagesEl?: ElementRef<HTMLDivElement>;
+  @ViewChild('streamEl') private streamEl?: ElementRef<HTMLDivElement>;
 
   /**
    * Conversation identity, keyed as {@code companyId:userId} (colon-separated) so the Redis stream
@@ -68,13 +69,59 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   readonly connected = signal(false);
   readonly showInternals = signal(true);
   readonly groups = signal<GroupsInfo | null>(null);
+  /** Analytics time series (user tokens per message) for the chart. */
+  readonly series = signal<SeriesPoint[]>([]);
   draft = '';
+
+  /** SVG chart geometry (viewBox 0 0 1000 160): bars positioned on a real time x-axis + gridlines. */
+  readonly chart = computed(() => {
+    const pts = this.series();
+    const W = 1000;
+    const H = 160;
+    const padX = 16;
+    const padTop = 12;
+    const padBot = 14;
+    const n = pts.length;
+    const max = Math.max(1, ...pts.map(p => p.value));
+    const yFor = (v: number) => (H - padBot) - (v / max) * (H - padTop - padBot);
+    const baseY = yFor(0);
+    const grid = [max, max / 2, 0].map(v => ({ y: yFor(v).toFixed(1), label: String(Math.round(v)) }));
+    if (n === 0) {
+      return { W, H, n, bars: [], grid, max, startLabel: '', endLabel: '' };
+    }
+    const tMin = pts[0].ts;
+    const tMax = pts[n - 1].ts;
+    const span = Math.max(1, tMax - tMin);
+    const xFor = (ts: number) => (n === 1 ? W / 2 : padX + ((ts - tMin) / span) * (W - 2 * padX));
+    const bw = 16;
+    const bars = pts.map(p => {
+      const cx = xFor(p.ts);
+      const y = yFor(p.value);
+      return {
+        x: (cx - bw / 2).toFixed(1),
+        y: y.toFixed(1),
+        w: bw,
+        h: Math.max(1, baseY - y).toFixed(1),
+        v: p.value,
+        xPct: ((cx / W) * 100).toFixed(2),
+        time: this.hms(p.ts)
+      };
+    });
+    return { W, H, n, bars, grid, max };
+  });
+
+  /** Format an epoch-ms bucket timestamp as HH:MM:SS (local time) for the x-axis ticks. */
+  private hms(ts: number): string {
+    const d = new Date(ts);
+    const p = (x: number) => String(x).padStart(2, '0');
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }
 
   /** Rendered chat = history turns + optimistic user + live streaming bubble (deduped). */
   readonly messages = computed<ChatMessage[]>(() => {
     const turns = this.historyTurns();
     const out: ChatMessage[] = turns.map(t => ({
-      role: t.role === 'assistant' ? 'assistant' : 'user',
+      role: t.role ?? 'user',
       content: t.content ?? '',
       complete: true,
       msgId: t.msgId,
@@ -96,15 +143,7 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   private subs: Subscription[] = [];
   private pollTimer?: ReturnType<typeof setInterval>;
-  private shouldScroll = false;
-
-  constructor() {
-    // Auto-scroll the transcript to the bottom whenever the message list changes.
-    effect(() => {
-      this.messages();
-      this.shouldScroll = true;
-    });
-  }
+  private scrollScheduled = false;
 
   ngOnInit(): void {
     this.ws.connect();
@@ -124,10 +163,33 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   ngAfterViewChecked(): void {
-    if (this.shouldScroll && this.messagesEl) {
-      this.messagesEl.nativeElement.scrollTop = this.messagesEl.nativeElement.scrollHeight;
-      this.shouldScroll = false;
+    // Pin both scrollers to the bottom so new messages/tokens are never missed. We pin synchronously
+    // AND once more deferred (setTimeout 0) because the last bubble's height is often laid out after
+    // this hook runs — the deferred pass runs post-layout and catches it. Idempotent at the bottom.
+    this.pinToBottom();
+    if (!this.scrollScheduled) {
+      this.scrollScheduled = true;
+      setTimeout(() => {
+        this.scrollScheduled = false;
+        this.pinToBottom();
+      }, 0);
     }
+  }
+
+  private pinToBottom(): void {
+    const m = this.messagesEl?.nativeElement;
+    if (m) {
+      m.scrollTop = m.scrollHeight;
+    }
+    const s = this.streamEl?.nativeElement;
+    if (s) {
+      s.scrollTop = s.scrollHeight;
+    }
+  }
+
+  /** Pin after the browser has laid out late-arriving content (streamed reply, polled turn). */
+  private deferPin(): void {
+    setTimeout(() => this.pinToBottom(), 120);
   }
 
   ngOnDestroy(): void {
@@ -148,11 +210,13 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.live.set(lt && lt.msgId === event.msgId
           ? { msgId: lt.msgId, content: lt.content + value }
           : { msgId: event.msgId ?? '', content: value });
+        this.deferPin();
         break;
       }
       case 'ASSISTANT_MESSAGE':
         this.live.set({ msgId: event.msgId ?? '', content: event.value ?? '' });
         this.refresh(); // pull the now-complete assistant turn into history
+        this.deferPin();
         break;
       case 'CONVERSATION_RESET':
         this.clearView();
@@ -167,8 +231,27 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     if (!content) {
       return;
     }
-    this.pendingUser.set(content);
+    this.sendContent(content);
     this.draft = '';
+  }
+
+  /** Cycles through messages that trip different moderation keywords on each click. */
+  private readonly moderationSamples = [
+    'Can you remind me my account password?',            // -> "password"
+    'Store this for later: my api key is sk-live-abc123', // -> "api key"
+    'My SSN is 078-05-1120 — is that on file?'            // -> "ssn"
+  ];
+  private modIndex = 0;
+
+  /** Demo helper: send a message that trips cg:moderation (different keyword each click). */
+  moderationDemo(): void {
+    const msg = this.moderationSamples[this.modIndex % this.moderationSamples.length];
+    this.modIndex++;
+    this.sendContent(msg);
+  }
+
+  private sendContent(content: string): void {
+    this.pendingUser.set(content);
     this.api.postMessage(this.cid, content).subscribe({
       next: () => setTimeout(() => this.refresh(), 300),
       error: err => console.error('postMessage failed', err)
@@ -182,9 +265,21 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     });
   }
 
+  /** Demo helper: send a poison message that fails every attempt → routed to the DLQ. */
+  dlqDemo(): void {
+    this.sendContent('/fail this request always errors out');
+  }
+
+  /** Demo helper: trigger a long reply so the token-by-token streaming is clearly visible. */
+  longTextDemo(): void {
+    this.sendContent('Write a long text explaining Redis Streams for LLM chat.');
+  }
+
   killWorker(): void {
+    // Arm the one-shot crash, then immediately send a sample message so the whole
+    // crash → XAUTOCLAIM recovery demo runs from a single click (no typing needed).
     this.api.killWorker(this.cid).subscribe({
-      next: () => this.refresh(),
+      next: () => this.sendContent('This reply crashes mid-generation — watch it auto-recover.'),
       error: err => console.error('kill-worker failed', err)
     });
   }
@@ -192,6 +287,14 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   refresh(): void {
     this.loadHistory();
     this.refreshGroups();
+    this.loadSeries();
+  }
+
+  private loadSeries(): void {
+    this.api.tokenSeries(this.cid).subscribe({
+      next: pts => this.series.set(pts),
+      error: () => { /* transient */ }
+    });
   }
 
   toggleInternals(): void {
@@ -210,6 +313,7 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         if (lt && turns.some(t => t.msgId === lt.msgId)) {
           this.live.set(null);
         }
+        this.deferPin();
       },
       error: () => { /* transient; next poll retries */ }
     });
@@ -226,6 +330,7 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.historyTurns.set([]);
     this.live.set(null);
     this.pendingUser.set(null);
+    this.series.set([]);
     this.refreshGroups();
   }
 }

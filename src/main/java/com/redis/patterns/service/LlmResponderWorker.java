@@ -50,6 +50,14 @@ public class LlmResponderWorker extends AbstractPerCidWorker {
     /** Per-cid one-shot "kill" flag: aborts the next generation before XACK (demo crash). */
     private final Map<String, AtomicBoolean> killArmed = new ConcurrentHashMap<>();
 
+    /** Entries ("cid|id") currently being generated, so the sweeper won't reclaim a live (slow) one. */
+    private final java.util.Set<String> inFlight = ConcurrentHashMap.newKeySet();
+
+    /** True while a live worker is actively generating this entry (not a dead/killed one). */
+    public boolean isInFlight(String cid, StreamEntryID id) {
+        return inFlight.contains(cid + "|" + id);
+    }
+
     @Override
     protected String threadNamePrefix() {
         return "llm-responder-";
@@ -104,18 +112,22 @@ public class LlmResponderWorker extends AbstractPerCidWorker {
             ack(chatKey, entry.getID());
             return;
         }
-        generate(cid, chatKey, entry.getID(), entry.getFields().get("content"));
+        generate(cid, chatKey, entry.getID(), entry.getFields().get("content"), entry.getFields().get("msgId"));
     }
 
     /**
      * Generate a reply for a user turn. Reusable by the recovery sweeper for reclaimed messages.
      * On any failure the message is deliberately left un-ACKed (still PENDING) so it can be recovered.
      */
-    void generate(String cid, String chatKey, StreamEntryID userEntryId, String content) {
+    void generate(String cid, String chatKey, StreamEntryID userEntryId, String content, String userMsgId) {
         String respId = UUID.randomUUID().toString();
         String tokenKey = LlmChatService.tokenKey(cid);
         StringBuilder buffer = new StringBuilder();
 
+        // Mark this message as actively being generated so the recovery sweeper doesn't reclaim a
+        // long-but-healthy generation (which would double-produce). Removed in finally.
+        String flightKey = cid + "|" + userEntryId;
+        inFlight.add(flightKey);
         try {
             // Demo crash: a one-shot kill aborts before XACK, leaving the message pending for the sweeper.
             if (killArmed.computeIfAbsent(cid, k -> new AtomicBoolean()).getAndSet(false)) {
@@ -151,6 +163,11 @@ public class LlmResponderWorker extends AbstractPerCidWorker {
                                             "model", llmClient.modelName())).toString();
                             jedis.expire(tokenKey, TOKEN_TTL_SECONDS);
                             jedis.xack(chatKey, LlmChatService.RESPONDER_GROUP, userEntryId);
+                            // Reply delivered in time → cancel the timeout so no failure notice fires.
+                            if (userMsgId != null) {
+                                jedis.del(LlmChatService.timeoutKey(userMsgId),
+                                        LlmChatService.timeoutShadowKey(userMsgId));
+                            }
                         }
                         broadcastAssistant(cid, respId, reply, assistantId);
                     });
@@ -163,6 +180,8 @@ public class LlmResponderWorker extends AbstractPerCidWorker {
             if (buffer.length() > 0) {
                 broadcastAssistant(cid, respId, buffer.toString(), null);
             }
+        } finally {
+            inFlight.remove(flightKey);
         }
     }
 

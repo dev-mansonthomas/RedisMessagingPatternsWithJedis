@@ -17,6 +17,7 @@ export interface GroupInfo {
   pending: number;
   lag?: number;
   lastDeliveredId?: string;
+  pendingState?: string; // 'processing' (normal wait) | 'failing' (stuck / awaiting recovery)
 }
 
 export interface Flag {
@@ -52,6 +53,11 @@ export interface MessagePosted {
   streamId: string;
 }
 
+export interface SeriesPoint {
+  ts: number;
+  value: number;
+}
+
 /**
  * HTTP client for the LLM Chat pattern (#12) backend (`/api/llm-chat`).
  */
@@ -80,5 +86,9 @@ export class LlmChatService {
 
   killWorker(cid: string): Observable<void> {
     return this.http.post<void>(`${this.baseUrl}/${cid}/kill-worker`, {});
+  }
+
+  tokenSeries(cid: string): Observable<SeriesPoint[]> {
+    return this.http.get<SeriesPoint[]>(`${this.baseUrl}/${cid}/token-series`);
   }
 }

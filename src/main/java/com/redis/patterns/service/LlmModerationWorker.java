@@ -11,6 +11,7 @@ import redis.clients.jedis.resps.StreamEntry;
 
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Fan-out consumer {@code cg:moderation}: reads the same {@code chat:{cid}} stream as the responder
@@ -55,13 +56,26 @@ public class LlmModerationWorker extends AbstractUserTurnConsumer {
             return;
         }
         String msgId = entry.getFields().getOrDefault("msgId", entry.getID().toString());
+        long now = System.currentTimeMillis();
         jedis.xadd(LlmChatService.flagsKey(cid),
                 XAddParams.xAddParams().maxLen(FLAGS_MAXLEN).approximateTrimming(),
                 Map.of(
                         "msgId", msgId,
                         "term", hit,
                         "reason", "matched moderation keyword",
-                        "ts", String.valueOf(System.currentTimeMillis())));
+                        "ts", String.valueOf(now)));
+
+        // Post a visible policy notice back into the conversation so moderation has an observable
+        // effect (role=system → the other groups skip it; the UI renders it as a warning bubble).
+        jedis.xadd(chatKey, XAddParams.xAddParams().maxLen(200).approximateTrimming(),
+                Map.of(
+                        "role", "system",
+                        "content", "⚠️ This message was flagged as prohibited by policy "
+                                + "(matched: \"" + hit + "\"). The event has been logged. If you persist, "
+                                + "a human audit will be triggered. To request an exception, file form B43.",
+                        "ts", String.valueOf(now),
+                        "msgId", UUID.randomUUID().toString(),
+                        "model", "moderation-policy"));
         log.info("Moderation flagged msg {} in {} (term='{}')", msgId, chatKey, hit);
     }
 }

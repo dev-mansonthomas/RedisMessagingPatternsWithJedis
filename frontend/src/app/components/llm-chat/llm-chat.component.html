@@ -17,7 +17,8 @@
     <section class="panel chat-panel">
       <div #messagesEl class="messages" role="log" aria-live="polite">
         @for (m of messages(); track $index) {
-          <div class="bubble" [class.user]="m.role === 'user'" [class.assistant]="m.role === 'assistant'">
+          <div class="bubble" [class.user]="m.role === 'user'"
+            [class.assistant]="m.role === 'assistant'" [class.system]="m.role === 'system'">
             <span class="who">{{ m.role }}</span>
             <span class="text">{{ m.content }}<span class="cursor" *ngIf="!m.complete">▋</span></span>
           </div>
@@ -36,12 +37,19 @@
           aria-label="Message"
           autocomplete="off" />
         <button type="submit" class="btn primary" [disabled]="!draft.trim()">Send</button>
-        <button type="button" class="btn danger" (click)="killWorker()"
-          title="Arms a one-shot crash: the next reply dies before XACK; the sweeper recovers it via XAUTOCLAIM">Kill worker</button>
         <button type="button" class="btn" (click)="reset()">Reset</button>
       </form>
-      <p class="hint">💡 Kill worker → send a message: it hangs (pending), then the sweeper recovers it.
-        Send <code>/fail …</code> to see repeated failure routed to the DLQ.</p>
+
+      <div class="demo-actions">
+        <button type="button" class="btn small warn" (click)="killWorker()"
+          title="One-shot crash before XACK; the sweeper reclaims it via XAUTOCLAIM and regenerates → the reply recovers">💥 Kill &amp; recovery</button>
+        <button type="button" class="btn small danger" (click)="dlqDemo()"
+          title="Sends a poison message that fails every attempt → reclaimed up to maxDeliveries → routed to the DLQ">💀 Kill &amp; DLQ</button>
+        <button type="button" class="btn small" (click)="moderationDemo()"
+          title="Sends a message that trips a moderation keyword (cycles password → api key → ssn)">🛡️ Moderation</button>
+        <button type="button" class="btn small" (click)="longTextDemo()"
+          title="Triggers a long reply so you can watch it stream token by token">📜 Long text</button>
+      </div>
     </section>
 
     <!-- Redis internals — the bridge between the chat and Redis -->
@@ -59,23 +67,30 @@
             </p>
 
             <h4>Conversation stream (chat:companyId:userId)</h4>
-            <table class="grid stream-grid">
-              <thead>
-                <tr><th>stream id</th><th>role</th><th>content</th></tr>
-              </thead>
-              <tbody>
-                @for (e of streamEntries(); track e.streamId) {
-                  <tr>
-                    <td class="mono">{{ e.streamId }}</td>
-                    <td>{{ e.role }}</td>
-                    <td class="preview">{{ e.content }}</td>
-                  </tr>
-                }
-                @if (streamEntries().length === 0) {
-                  <tr><td colspan="3" class="muted">Empty — send a message.</td></tr>
-                }
-              </tbody>
-            </table>
+            <div #streamEl class="stream-scroll">
+              <table class="grid stream-grid">
+                <colgroup>
+                  <col class="col-id" />
+                  <col class="col-role" />
+                  <col class="col-content" />
+                </colgroup>
+                <thead>
+                  <tr><th>stream id</th><th>role</th><th>content</th></tr>
+                </thead>
+                <tbody>
+                  @for (e of streamEntries(); track e.streamId) {
+                    <tr>
+                      <td class="mono id">{{ e.streamId }}</td>
+                      <td>{{ e.role }}</td>
+                      <td class="preview">{{ e.content && e.content.length > 400 ? (e.content | slice:0:400) + '…' : e.content }}</td>
+                    </tr>
+                  }
+                  @if (streamEntries().length === 0) {
+                    <tr><td colspan="3" class="muted">Empty — send a message.</td></tr>
+                  }
+                </tbody>
+              </table>
+            </div>
 
             <h4>Consumer groups (XINFO GROUPS)</h4>
             <table class="grid">
@@ -87,7 +102,10 @@
                   <tr>
                     <td>{{ grp.name }}</td>
                     <td>{{ grp.consumers }}</td>
-                    <td [class.hot]="grp.pending > 0">{{ grp.pending }}</td>
+                    <td [class.pending-wait]="grp.pendingState === 'processing'"
+                        [class.pending-alert]="grp.pendingState === 'failing'">{{ grp.pending }}<span
+                        *ngIf="grp.pendingState === 'processing'" class="pending-ico">&#8987;&#xFE0E;</span><span
+                        *ngIf="grp.pendingState === 'failing'" class="pending-ico">&#9888;&#xFE0E;</span></td>
                     <td>{{ grp.lag ?? '—' }}</td>
                     <td class="mono">{{ grp.lastDeliveredId ?? '—' }}</td>
                   </tr>
@@ -151,6 +169,37 @@
     </section>
   </div>
 
+  <!-- Full-width analytics time-series chart (RedisTimeSeries) -->
+  <div class="panel chart-panel">
+    <div class="chart-head">📈 User tokens over time
+      <span class="chart-sub">RedisTimeSeries · sum per 10s bucket · <code>ts:{{ cid }}:userTokens</code></span>
+    </div>
+    @if (chart().n > 0) {
+      <div class="chart-body">
+        <div class="y-axis"><span>{{ chart().max }}</span><span>tokens</span><span>0</span></div>
+        <svg class="chart-svg" [attr.viewBox]="'0 0 ' + chart().W + ' ' + chart().H"
+          preserveAspectRatio="none" role="img" aria-label="User tokens over time">
+          @for (g of chart().grid; track $index) {
+            <line class="chart-grid" x1="0" [attr.y1]="g.y" [attr.x2]="chart().W" [attr.y2]="g.y"></line>
+          }
+          @for (b of chart().bars; track $index) {
+            <rect class="chart-bar" [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.w" [attr.height]="b.h"></rect>
+          }
+        </svg>
+      </div>
+      <div class="x-ticks">
+        <div class="x-ticks-spacer"></div>
+        <div class="x-ticks-inner">
+          @for (b of chart().bars; track $index) {
+            <span class="tick" [style.left.%]="b.xPct">{{ b.time }}</span>
+          }
+        </div>
+      </div>
+    } @else {
+      <p class="muted chart-empty">No data yet — send a few messages to plot user tokens over time.</p>
+    }
+  </div>
+
   <!-- Layer 2: architecture / sequence diagrams -->
   <app-mermaid-diagram
     title="View Architecture & Sequence Diagrams"
@@ -161,6 +210,29 @@
   <!-- Layer 3: pseudo-code / logic (always visible) -->
   <div class="explanation-section">
     <h3 class="explanation-title">🧠 Pseudo-code / logic</h3>
+
+    <div class="redis-features">
+      <h4>🧩 Redis features used on this page</h4>
+      <ul>
+        <li><strong>Streams</strong> — the conversation (<code>chat:cid</code>), per-response tokens
+          (<code>chat:cid:tok</code>), moderation flags and the DLQ are all streams
+          (<code>XADD</code>, <code>XRANGE</code>/<code>XREVRANGE</code>, <code>XLEN</code>, <code>XREAD</code>).</li>
+        <li><strong>Consumer groups — fan-out</strong> — three groups read the same stream independently:
+          <code>cg:responder</code>, <code>cg:moderation</code>, <code>cg:analytics</code>
+          (<code>XREADGROUP</code>, <code>XACK</code>, <code>XINFO GROUPS</code>, <code>XPENDING</code>).</li>
+        <li><strong>Crash recovery + DLQ</strong> — reclaim stale-pending messages and give up after
+          N tries (<code>XAUTOCLAIM</code> → <code>chat:cid:dlq</code>).</li>
+        <li><strong>Approximate trimming</strong> — bound stream memory with <code>MAXLEN ~</code>.</li>
+        <li><strong>Hashes</strong> — analytics counters in <code>chat:cid:stats</code>
+          (<code>HINCRBY</code>, <code>HGETALL</code>).</li>
+        <li><strong>RedisTimeSeries</strong> — the tokens-over-time chart <code>ts:cid:userTokens</code>
+          (<code>TS.ADD</code>, <code>TS.RANGE … AGGREGATION</code>).</li>
+        <li><strong>Key expiry / TTL</strong> — transient token stream and the reply-timeout key
+          (<code>SETEX</code>, <code>EXPIRE</code>).</li>
+        <li><strong>Keyspace notifications</strong> — reply timeout driven by key-expiry events
+          (<code>notify-keyspace-events Ex</code>, <code>PSUBSCRIBE __keyevent&#64;0__:expired</code>).</li>
+      </ul>
+    </div>
 
     <div class="xadd-example">
       <div class="xadd-line">
@@ -237,9 +309,15 @@
     see the internals panel above.</p>
 
     <p class="fanout-note resilience">♻️ <strong>Resilience:</strong> a per-cid sweeper <code>XAUTOCLAIM</code>s
-    messages a worker took but never <code>XACK</code>ed (idle {{ '>' }} minIdle) and regenerates them —
-    so a crash mid-generation still gets a reply. After <code>maxDeliveries</code> failed attempts the
-    message is routed to <code>chat:{{ cid }}:dlq</code>. Try the <em>Kill worker</em> button, or send
-    <code>/fail …</code> to watch a message land in the DLQ.</p>
+    messages a worker took but never <code>XACK</code>ed (idle beyond minIdle) and regenerates them —
+    so a crash mid-generation still gets a reply (<em>Kill &amp; recovery</em>). After
+    <code>maxDeliveries</code> failed attempts the message is routed to <code>chat:{{ cid }}:dlq</code>
+    (<em>Kill &amp; DLQ</em>).</p>
+
+    <p class="fanout-note timeout">⏱ <strong>Reply timeout (Redis keyspace notifications):</strong> each
+    message sets a short-lived key <code>llm:timeout:{{ '{' }}msgId{{ '}' }}</code> that's deleted when the
+    reply completes. If it <em>expires</em> first, Redis fires a keyspace <code>expired</code> event
+    (<code>notify-keyspace-events Ex</code>) that a listener turns into a ⏱ system notice here — so you're
+    told when a message failed to get a reply, without polling. Same mechanism as Request/Reply (ADR-0007).</p>
   </div>
 </div>

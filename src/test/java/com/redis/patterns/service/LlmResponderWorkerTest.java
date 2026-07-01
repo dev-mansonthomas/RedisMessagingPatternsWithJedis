@@ -171,6 +171,23 @@ class LlmResponderWorkerTest extends AbstractRedisIntegrationTest {
     }
 
     @Test
+    void completedReplyClearsTheTimeoutKey() {
+        String chatKey = "chat:conv5";
+        createGroup(chatKey);
+        try (var jedis = jedisPool.getResource()) {
+            jedis.setex("llm:timeout:u1", 60, "1"); // addUserMessage uses msgId "u1"
+        }
+        worker.startFor("conv5");
+        addUserMessage(chatKey, "hello there");
+
+        awaitUntil(Duration.ofSeconds(10), () -> findAssistant(chatKey).isPresent());
+
+        try (var jedis = jedisPool.getResource()) {
+            assertThat(jedis.exists("llm:timeout:u1")).isFalse(); // reply in time → timeout cancelled
+        }
+    }
+
+    @Test
     void nonUserEntryIsAckedWithoutGenerating() {
         String chatKey = "chat:conv2";
         createGroup(chatKey);

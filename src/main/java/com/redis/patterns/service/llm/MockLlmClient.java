@@ -3,6 +3,7 @@ package com.redis.patterns.service.llm;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
 
 /**
@@ -15,6 +16,20 @@ import java.util.function.Consumer;
  */
 @Slf4j
 public class MockLlmClient implements LlmClient {
+
+    private static final String LONG_REPLY =
+            "Redis Streams make an excellent backbone for an LLM conversation. Every turn is appended "
+            + "with XADD, so the whole dialogue is an ordered, immutable, replayable log — you can "
+            + "reconstruct the exact context at any point with XREVRANGE, and nothing is lost if a "
+            + "client disconnects. Consumer groups let several independent workers read the same stream "
+            + "without copying data: one generates the reply, another moderates the content, a third "
+            + "records analytics. Because each token is itself appended to a dedicated stream, the "
+            + "answer can be pushed to the browser word by word, exactly as it is produced, giving the "
+            + "familiar typing effect you are watching right now. And if a worker crashes mid-generation, "
+            + "XPENDING plus XAUTOCLAIM hand the unfinished message to another worker, so the reply still "
+            + "completes or, after repeated failures, lands safely in a dead-letter queue for later "
+            + "inspection. That combination of durability, fan-out and guaranteed processing is exactly "
+            + "what production assistants need, and it is all just a handful of Redis commands.";
 
     private final long tokenDelayMs;
 
@@ -53,6 +68,10 @@ public class MockLlmClient implements LlmClient {
         }
         if (lastUser == null || lastUser.isBlank()) {
             return "Mocked-up response — no user input yet.";
+        }
+        // "Long text" demo: a long deterministic reply so the token-by-token streaming is obvious.
+        if (lastUser.toLowerCase(Locale.ROOT).contains("long text")) {
+            return LONG_REPLY;
         }
         // Deterministic canned reply; a production LlmClient would generate a real answer here.
         return "Mocked-up response — user input: \"" + lastUser + "\"";

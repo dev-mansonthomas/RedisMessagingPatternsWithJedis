@@ -99,6 +99,33 @@ class LlmChatServiceTest extends AbstractRedisIntegrationTest {
     }
 
     @Test
+    void tokenSeriesAggregatesIntoTimeBuckets() {
+        redis.clients.jedis.commands.ProtocolCommand tsAdd =
+                () -> "TS.ADD".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        try (var jedis = jedisPool.getResource()) {
+            // Two samples in the same 10s bucket [0,10000) -> summed; one in the next bucket.
+            jedis.sendCommand(tsAdd, "ts:conv1:userTokens", "1000", "3");
+            jedis.sendCommand(tsAdd, "ts:conv1:userTokens", "2000", "5");
+            jedis.sendCommand(tsAdd, "ts:conv1:userTokens", "12000", "4");
+        }
+
+        var points = service.tokenSeries("conv1");
+
+        assertThat(points).hasSize(2);
+        assertThat(points.get(0).value()).isEqualTo(8.0);  // 3 + 5 summed in the first bucket
+        assertThat(points.get(1).value()).isEqualTo(4.0);
+    }
+
+    @Test
+    void postMessageSetsReplyTimeoutKeyAndShadow() {
+        MessagePosted posted = service.postMessage("conv1", "hi");
+        try (var jedis = jedisPool.getResource()) {
+            assertThat(jedis.exists("llm:timeout:" + posted.msgId())).isTrue();
+            assertThat(jedis.hget("llm:timeout:shadow:" + posted.msgId(), "cid")).isEqualTo("conv1");
+        }
+    }
+
+    @Test
     void invalidCidIsRejected() {
         assertThatThrownBy(() -> service.postMessage("bad id!", "x"))
                 .isInstanceOf(IllegalArgumentException.class);
