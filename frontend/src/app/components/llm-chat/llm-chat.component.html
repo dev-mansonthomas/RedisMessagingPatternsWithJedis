@@ -40,11 +40,6 @@
         <button type="button" class="btn" (click)="reset()">Reset</button>
       </form>
 
-      @if (killArmed()) {
-        <p class="armed-banner">💥 Kill armed — send a message: it crashes before <code>XACK</code>,
-          then the sweeper auto-recovers it (~5s).</p>
-      }
-
       <div class="demo-actions">
         <button type="button" class="btn small warn" (click)="killWorker()"
           title="One-shot crash before XACK; the sweeper reclaims it via XAUTOCLAIM and regenerates → the reply recovers">💥 Kill &amp; recovery</button>

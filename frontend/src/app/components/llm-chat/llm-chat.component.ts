@@ -69,8 +69,6 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   readonly connected = signal(false);
   readonly showInternals = signal(true);
   readonly groups = signal<GroupsInfo | null>(null);
-  /** Feedback banner after clicking "Kill worker" until the next message is sent. */
-  readonly killArmed = signal(false);
   /** Analytics time series (user tokens per message) for the chart. */
   readonly series = signal<SeriesPoint[]>([]);
   draft = '';
@@ -254,7 +252,6 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   private sendContent(content: string): void {
     this.pendingUser.set(content);
-    this.killArmed.set(false); // the armed crash is about to be consumed by this generation
     this.api.postMessage(this.cid, content).subscribe({
       next: () => setTimeout(() => this.refresh(), 300),
       error: err => console.error('postMessage failed', err)
@@ -279,11 +276,10 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   killWorker(): void {
+    // Arm the one-shot crash, then immediately send a sample message so the whole
+    // crash → XAUTOCLAIM recovery demo runs from a single click (no typing needed).
     this.api.killWorker(this.cid).subscribe({
-      next: () => {
-        this.killArmed.set(true);
-        this.refresh();
-      },
+      next: () => this.sendContent('This reply crashes mid-generation — watch it auto-recover.'),
       error: err => console.error('kill-worker failed', err)
     });
   }
@@ -335,7 +331,6 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.live.set(null);
     this.pendingUser.set(null);
     this.series.set([]);
-    this.killArmed.set(false);
     this.refreshGroups();
   }
 }
