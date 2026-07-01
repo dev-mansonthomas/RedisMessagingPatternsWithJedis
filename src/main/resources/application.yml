@@ -41,8 +41,17 @@ llm:
   max-conversations: ${LLM_MAX_CONVERSATIONS:100}     # LRU cap on live per-cid workers
   conversation-idle-ttl-ms: ${LLM_CONV_IDLE_TTL_MS:1800000}  # reap idle conversations after 30m
   reaper-interval-ms: ${LLM_REAPER_INTERVAL_MS:60000}
+  timeout-seconds: ${LLM_TIMEOUT_SECONDS:10}          # reply-timeout key TTL; expiry -> keyspace notification
+  token-chart-bucket-ms: ${LLM_TOKEN_CHART_BUCKET_MS:10000}  # TS.RANGE aggregation bucket for the chart
   mock:
     token-delay-ms: ${LLM_MOCK_TOKEN_DELAY_MS:40}
+  moderation:
+    keywords: ${LLM_MODERATION_KEYWORDS:password,secret,ssn,credit card,api key}
+  resilience:
+    max-deliveries: ${LLM_MAX_DELIVERIES:2}           # reclaims beyond this -> DLQ
+    min-idle-ms: ${LLM_MIN_IDLE_MS:2000}              # only reclaim pending idle longer than this (ms)
+    sweep-interval-ms: ${LLM_SWEEP_INTERVAL_MS:1000}  # XAUTOCLAIM sweep cadence
+    poison-prefix: ${LLM_POISON_PREFIX:/fail}         # content prefix that always fails (DLQ demo)
 
 # Logging Configuration
 logging:
