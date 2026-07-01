@@ -1,0 +1,184 @@
+<div class="llm-chat">
+  <header class="page-header">
+    <div class="titles">
+      <h1>🤖 LLM Chat <span class="tag">Streams</span></h1>
+      <p class="subtitle">
+        Conversation keyed by <code>companyId:userId</code> → stream <code>chat:{{ cid }}</code>.
+        Each generated token is appended to <code>chat:{{ cid }}:tok</code> and streamed to the browser.
+      </p>
+    </div>
+    <span class="conn" [class.on]="connected()">
+      <span class="dot"></span>{{ connected() ? 'WS connected' : 'WS offline (REST fallback)' }}
+    </span>
+  </header>
+
+  <!-- Layer 1: the demo (chat + Redis internals) comes first -->
+  <div class="layout">
+    <section class="panel chat-panel">
+      <div #messagesEl class="messages" role="log" aria-live="polite">
+        @for (m of messages(); track $index) {
+          <div class="bubble" [class.user]="m.role === 'user'" [class.assistant]="m.role === 'assistant'">
+            <span class="who">{{ m.role }}</span>
+            <span class="text">{{ m.content }}<span class="cursor" *ngIf="!m.complete">▋</span></span>
+          </div>
+        }
+        @if (messages().length === 0) {
+          <p class="empty">No messages yet — say hello to stream a deterministic mock reply.</p>
+        }
+      </div>
+
+      <form class="composer" (ngSubmit)="send()">
+        <input
+          type="text"
+          name="draft"
+          [(ngModel)]="draft"
+          placeholder="Type a message and press Enter…"
+          aria-label="Message"
+          autocomplete="off" />
+        <button type="submit" class="btn primary" [disabled]="!draft.trim()">Send</button>
+        <button type="button" class="btn" (click)="reset()">Reset</button>
+      </form>
+    </section>
+
+    <!-- Redis internals — the bridge between the chat and Redis -->
+    <section class="panel internals">
+      <button type="button" class="collapse" (click)="toggleInternals()">
+        <span class="chev">{{ showInternals() ? '▼' : '▶' }}</span> 🔴 Redis internals
+      </button>
+
+      @if (showInternals()) {
+        <div class="internals-body">
+          @if (groups(); as g) {
+            <p class="stream-line">
+              <code>{{ g.stream }}</code> · <strong>{{ g.length }}</strong> entries
+              &nbsp;·&nbsp; <code>{{ g.tokenStream }}</code> · <strong>{{ g.tokenStreamLength }}</strong> tokens
+            </p>
+
+            <h4>Conversation stream (chat:companyId:userId)</h4>
+            <table class="grid stream-grid">
+              <thead>
+                <tr><th>stream id</th><th>role</th><th>content</th></tr>
+              </thead>
+              <tbody>
+                @for (e of streamEntries(); track e.streamId) {
+                  <tr>
+                    <td class="mono">{{ e.streamId }}</td>
+                    <td>{{ e.role }}</td>
+                    <td class="preview">{{ e.content }}</td>
+                  </tr>
+                }
+                @if (streamEntries().length === 0) {
+                  <tr><td colspan="3" class="muted">Empty — send a message.</td></tr>
+                }
+              </tbody>
+            </table>
+
+            <h4>Consumer groups (XINFO GROUPS)</h4>
+            <table class="grid">
+              <thead>
+                <tr><th>group</th><th>consumers</th><th>pending</th><th>lag</th><th>last-delivered-id</th></tr>
+              </thead>
+              <tbody>
+                @for (grp of g.groups; track grp.name) {
+                  <tr>
+                    <td>{{ grp.name }}</td>
+                    <td>{{ grp.consumers }}</td>
+                    <td [class.hot]="grp.pending > 0">{{ grp.pending }}</td>
+                    <td>{{ grp.lag ?? '—' }}</td>
+                    <td class="mono">{{ grp.lastDeliveredId ?? '—' }}</td>
+                  </tr>
+                }
+                @if (g.groups.length === 0) {
+                  <tr><td colspan="5" class="muted">No consumer group yet (send a message).</td></tr>
+                }
+              </tbody>
+            </table>
+          } @else {
+            <p class="muted">Waiting for stream data…</p>
+          }
+          <button type="button" class="btn small" (click)="refresh()">Refresh now</button>
+        </div>
+      }
+    </section>
+  </div>
+
+  <!-- Layer 2: architecture / sequence diagrams -->
+  <app-mermaid-diagram
+    title="View Architecture & Sequence Diagrams"
+    [architectureDiagram]="diagrams.llmChat.architecture"
+    [sequenceDiagram]="diagrams.llmChat.sequence">
+  </app-mermaid-diagram>
+
+  <!-- Layer 3: pseudo-code / logic (always visible) -->
+  <div class="explanation-section">
+    <h3 class="explanation-title">🧠 Pseudo-code / logic</h3>
+
+    <div class="xadd-example">
+      <div class="xadd-line">
+        <span class="xadd-command">XADD</span>
+        <span class="xadd-stream">chat:companyId:userId</span>
+        <span class="xadd-id">*</span>
+        <span class="xadd-field">role</span> <span class="xadd-value">user</span>
+        <span class="xadd-field">content</span> <span class="xadd-value">"…"</span>
+        <span class="xadd-field">msgId</span> <span class="xadd-value">ulid()</span>
+      </div>
+    </div>
+
+    <div class="pseudocode">
+      <div class="code-block">
+        <div class="code-line block-head"><span class="step-num">1</span> <span class="step">user sends a message</span></div>
+        <div class="code-line"><span class="user-action">👤 UI → POST /message(text)</span></div>
+        <div class="code-line"><span class="keyword">function</span> <span class="function">&nbsp;postMessage</span>(cid, text):</div>
+        <div class="code-line indent1"><span class="function">ensureConversation</span>(cid)</div>
+        <div class="code-line indent2"><span class="comment">// XGROUP CREATE (idempotent)</span></div>
+        <div class="code-line indent1"><span class="function">XADD</span> chat:cid role=user</div>
+        <div class="code-line indent1"><span class="comment">// group before XADD → no miss</span></div>
+      </div>
+
+      <div class="code-block">
+        <div class="code-line block-head"><span class="step-num">2</span> <span class="step">responder generates (1 VT/cid)</span></div>
+        <div class="code-line"><span class="keyword">loop</span>:</div>
+        <div class="code-line indent1">id,msg = <span class="function">XREADGROUP</span> cg:responder</div>
+        <div class="code-line indent1"><span class="keyword">if</span> role != user: <span class="function">XACK</span>; <span class="keyword">skip</span></div>
+        <div class="code-line indent1">ctx = <span class="function">XREVRANGE</span> chat:cid ..id</div>
+        <div class="code-line indent1">llm.<span class="function">generate</span>(ctx):</div>
+        <div class="code-line indent2"><span class="success">onToken</span>: <span class="function">XADD</span> chat:cid:tok</div>
+        <div class="code-line indent2"><span class="success">onComplete</span>: <span class="function">XADD</span> assistant</div>
+        <div class="code-line indent2"><span class="function">EXPIRE</span> tok 60; <span class="function">XACK</span></div>
+      </div>
+
+      <div class="code-block">
+        <div class="code-line block-head"><span class="step-num">3</span> <span class="step">tokens stream to the user</span></div>
+        <div class="code-line"><span class="keyword">loop</span>:</div>
+        <div class="code-line indent1">es = <span class="function">XREAD</span> chat:cid:tok lastId</div>
+        <div class="code-line indent1"><span class="keyword">for</span> e <span class="keyword">in</span> es:</div>
+        <div class="code-line indent2">ws.<span class="function">push</span>(cid, TOKEN, e.token)</div>
+        <div class="code-line indent2"><span class="user-action">👤 UI renders token</span></div>
+      </div>
+    </div>
+
+    <div class="steps-explainer">
+      <div class="step-item">
+        <span class="step-num">1</span>
+        <p><strong>The user posts a message.</strong> The browser POSTs it; <code>ensureConversation</code>
+        creates the stream and the <code>cg:responder</code> group if absent (idempotent, <code>MKSTREAM</code>)
+        and lazily starts the per-conversation workers, then <code>XADD chat:cid</code> appends the turn —
+        the conversation <em>is</em> the stream (ordered, replayable).</p>
+      </div>
+      <div class="step-item">
+        <span class="step-num">2</span>
+        <p><strong>The responder generates the reply.</strong> One Virtual Thread blocks on
+        <code>XREADGROUP cg:responder</code> (it wakes on a new message — no polling), skips non-user
+        turns, rebuilds the context with <code>XREVRANGE</code>, calls the LLM, <code>XADD</code>s each
+        generated token to <code>chat:cid:tok</code>, then appends the finished <code>assistant</code>
+        turn and <code>XACK</code>s the user message.</p>
+      </div>
+      <div class="step-item">
+        <span class="step-num">3</span>
+        <p><strong>Tokens stream back to the user.</strong> A second Virtual Thread <code>XREAD</code>s the
+        token stream and pushes each token over WebSocket (only to this cid's subscribers); the UI appends
+        them, so the answer appears word by word, at the pace the LLM generates it.</p>
+      </div>
+    </div>
+  </div>
+</div>

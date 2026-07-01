@@ -610,5 +610,57 @@ export class DiagramDefinitionsService {
     W->>Redis: XREADGROUP events.order.v1
     Redis-->>W: Messages`
   };
+
+  readonly llmChat: DiagramDefinition = {
+    architecture: `flowchart TB
+    UI["🖥️ Angular /llm-chat"]
+
+    subgraph Redis["🔴 Redis"]
+        S[("💬 chat:cid<br/>Conversation Stream")]
+        T[("⌨️ chat:cid:tok<br/>Token Stream (capped)")]
+    end
+
+    subgraph Workers["⚙️ Virtual Threads (per conversation)"]
+        R["🤖 Responder<br/>cg:responder"]
+        TL["📡 Token Listener"]
+    end
+
+    LLM["🧠 LlmClient (mock)"]
+
+    UI -->|"POST message<br/>XADD role=user"| S
+    S -->|"XREADGROUP cg:responder"| R
+    R -->|"XREVRANGE (context)"| S
+    R -->|"generate"| LLM
+    R -->|"XADD token"| T
+    R -->|"XADD role=assistant + XACK"| S
+    T -->|"XREAD BLOCK"| TL
+    TL -->|"WebSocket (filtered by cid)"| UI
+
+    style Redis fill:#dc382d,color:#fff
+    style S fill:#3498db,color:#fff
+    style T fill:#8e44ad,color:#fff
+    style LLM fill:#f39c12,color:#000`,
+    sequence: `sequenceDiagram
+    autonumber
+    participant U as Angular UI
+    participant S as chat:cid
+    participant R as Responder (VT)
+    participant L as LlmClient (mock)
+    participant T as chat:cid:tok
+    participant TL as Token Listener (VT)
+
+    U->>S: XADD role=user
+    R->>S: XREADGROUP cg:responder
+    R->>S: XREVRANGE (rebuild context)
+    R->>L: generate(context)
+    loop each token
+        L-->>R: token
+        R->>T: XADD token
+        TL->>T: XREAD BLOCK
+        TL-->>U: WS TOKEN (progressive render)
+    end
+    R->>S: XADD role=assistant (full text)
+    R->>S: XACK (user message processed)`
+  };
 }
 

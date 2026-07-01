@@ -138,6 +138,18 @@ docker compose down -v
 </tr>
 </table>
 
+<table>
+<tr>
+<th>LLM Chat (Streams)</th>
+</tr>
+<tr>
+<td align="center"><em>screenshot pending (img/LlmChat.jpg)</em></td>
+</tr>
+<tr>
+<td align="center">Stream & replay an LLM conversation, token by token<br/>📊 <a href="docs/diagrams/llm-chat.md">Architecture & Sequence Diagrams</a></td>
+</tr>
+</table>
+
 ### Messaging Patterns
 
 <table>
@@ -327,6 +339,20 @@ Detailed contracts (Redis keys, endpoints, edge cases) live in [`docs/specs/`](d
 **What it solves**: Cap concurrently-running jobs per type (e.g. Payment 3, Email 2, CSV 1).
 
 **Key concepts**: Lua acquire-token check against per-type counters; live running/completed charts.
+
+### 12. 🤖 LLM Chat (Streams) — `/llm-chat`
+
+**What it solves**: Persist and stream an LLM conversation entirely through Redis Streams — durable,
+replayable context; token-by-token streaming; a live "Redis internals" view of the consumer group.
+Slice 1 uses a deterministic mock model (offline, no API key, no cost); fan-out to
+moderation/analytics and `XAUTOCLAIM` crash recovery are on the roadmap.
+
+**Use case**: Enterprise assistants where conversation auditability, replay and operability matter.
+
+**Key concepts**: One stream per conversation (`chat:{cid}`); `cg:responder` consumer group; a
+per-conversation token stream (`chat:{cid}:tok`) demuxed by `msgId`; `XREVRANGE` context window.
+Pluggable `LlmClient` (mock default, optional Ollama later). See
+[`docs/diagrams/llm-chat.md`](docs/diagrams/llm-chat.md).
 
 ---
 

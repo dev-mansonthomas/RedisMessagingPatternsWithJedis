@@ -35,19 +35,26 @@ observability over hardening.
   required in this VM — a host-installed `node_modules` carries the wrong `esbuild` native binary (darwin vs linux).
 - **Lua lint:** `luacheck lua/ --globals redis cjson cmsgpack bit` (luacheck 1.2.0, Lua 5.1) →
   0 errors, 5 cosmetic warnings (long line / trailing whitespace).
-- **Tests:** none exist yet (no `src/test`, no `*.spec.ts`). See `docs/TODO.md`.
-- **Lint:** `cd frontend && npm run lint` → currently **76 errors** (see `docs/TODO.md`).
+- **Backend tests:** `mvn test` — the LLM Chat pattern (#12) introduced the first backend tests
+  (`src/test/java/com/redis/patterns/`). Integration tests use a real Redis started via the **docker
+  CLI** (`support/AbstractRedisIntegrationTest`), not Testcontainers — the bundled docker-java
+  negotiates Docker API v1.32, which this engine (min v1.40) rejects. Tests **skip** (not fail) when
+  Docker is unavailable. No other pattern has tests yet.
+- **Frontend tests:** still none (no runner configured — `ng test` has no builder). See `docs/TODO.md`.
+- **Lint:** `cd frontend && npm run lint` → ~78 pre-existing errors in older components (see
+  `docs/TODO.md`); the `llm-chat` component/service are lint-clean.
 
 ## Layout
 
 - `src/main/java/com/redis/patterns/` — backend: `controller/`, `service/`, `config/`, `dto/`, `websocket/`
 - `lua/stream_utils.lua` — all 7 registered Redis Functions (`read_claim_or_dlq`, `request`, `response`, `route_message`, `acquire_token`, `release_token`, `release_lock`)
 - `frontend/src/app/components/<pattern>/` — one Angular component per pattern page
-- `frontend/src/app/services/` — `redis-api`, `websocket`, `stream-refresh`, `routing-rules`, `diagram-definitions`
+- `frontend/src/app/services/` — `redis-api`, `websocket`, `stream-refresh`, `routing-rules`, `diagram-definitions`, `llm-chat`
+- `service/llm/` — pattern #12 LLM abstraction (`LlmClient`, `MockLlmClient`); orchestration in `LlmChatService` + `LlmResponderWorker` + `LlmTokenListenerService`
 - `docs/` — agent-facing docs (this map points into them)
 - `augmentcode/` — **legacy** agent notes (covers only the first 4 patterns; superseded by `docs/`)
 
-## The 11 patterns (route → primary Redis structure)
+## The 12 patterns (route → primary Redis structure)
 
 | Page route | Pattern | Redis structure | Key streams/keys |
 |------------|---------|-----------------|------------------|
@@ -62,6 +69,7 @@ observability over hardening.
 | `/scheduled-messages` | Scheduled/Delayed Messages | Sorted Set + Hash + Stream | `scheduled.messages`, `reminders.v1` |
 | `/per-key-serialized` | Per-Key Serialized | Stream + `SET NX` lock per key | `jobs.perkey.v1`, `running:order:{id}` |
 | `/token-bucket` | Token Bucket (concurrency cap) | Stream + Lua counter | `token-bucket.jobs.v1` |
+| `/llm-chat` | LLM Chat (Streams) | Stream + `cg:responder` group + per-conv token stream | `chat:{cid}`, `chat:{cid}:tok` |
 
 Full contracts: `docs/specs/<pattern>.md`. System design: `docs/architecture/overview.md`.
 Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.

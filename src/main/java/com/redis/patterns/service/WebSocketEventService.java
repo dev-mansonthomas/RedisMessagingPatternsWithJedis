@@ -2,6 +2,7 @@ package com.redis.patterns.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.redis.patterns.dto.DLQEvent;
+import com.redis.patterns.dto.LlmChatEvent;
 import com.redis.patterns.dto.PubSubEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,14 @@ import java.util.concurrent.CopyOnWriteArraySet;
 public class WebSocketEventService {
 
     private static final Logger log = LoggerFactory.getLogger(WebSocketEventService.class);
+
+    /**
+     * WebSocket session attribute holding the conversation id a client subscribed to (pattern #12).
+     * LLM chat events are delivered only to sessions whose attribute matches the event's cid, so one
+     * conversation's content is not fanned out to every connected client.
+     */
+    public static final String LLM_CID_ATTRIBUTE = "llmCid";
+
     private final ObjectMapper objectMapper;
     
     // Thread-safe set of active WebSocket sessions
@@ -212,6 +221,70 @@ public class WebSocketEventService {
 
         } catch (Exception e) {
             log.error("Failed to broadcast PubSubEvent", e);
+        }
+    }
+
+    /**
+     * Broadcasts an LLM Chat event (pattern #12) to all connected WebSocket clients.
+     *
+     * <p>Same broadcast-and-prune mechanics as the other overloads; clients filter by
+     * {@code conversationId}.
+     *
+     * @param event The LLM chat event to broadcast
+     */
+    public void broadcastEvent(LlmChatEvent event) {
+        if (sessions.isEmpty()) {
+            log.trace("No active WebSocket sessions, skipping broadcast");
+            return;
+        }
+
+        try {
+            String message = objectMapper.writeValueAsString(event);
+            if (message == null) {
+                log.error("Failed to serialize LlmChatEvent to JSON");
+                return;
+            }
+            TextMessage textMessage = new TextMessage(message);
+
+            log.debug("Broadcasting LlmChatEvent to {} sessions: {}", sessions.size(), event.getEventType());
+
+            int successCount = 0;
+            int failureCount = 0;
+
+            for (WebSocketSession session : sessions) {
+                // Confidentiality: only deliver to sessions that subscribed to THIS conversation id,
+                // instead of fanning every conversation's content out to all connected clients.
+                Object subscribed = session.getAttributes().get(LLM_CID_ATTRIBUTE);
+                if (subscribed == null || !subscribed.equals(event.getConversationId())) {
+                    continue;
+                }
+                try {
+                    if (session.isOpen()) {
+                        synchronized (session) {
+                            session.sendMessage(textMessage);
+                        }
+                        sessionStats.merge(session.getId(), 1L, Long::sum);
+                        successCount++;
+                    } else {
+                        sessions.remove(session);
+                        sessionStats.remove(session.getId());
+                        failureCount++;
+                        log.debug("Removed closed session: {}", session.getId());
+                    }
+                } catch (IOException e) {
+                    sessions.remove(session);
+                    sessionStats.remove(session.getId());
+                    failureCount++;
+                    log.warn("Failed to send message to session {}, removing it", session.getId(), e);
+                }
+            }
+
+            if (log.isTraceEnabled()) {
+                log.trace("LlmChat broadcast complete: {} successful, {} failed", successCount, failureCount);
+            }
+
+        } catch (Exception e) {
+            log.error("Failed to broadcast LlmChatEvent", e);
         }
     }
 }
