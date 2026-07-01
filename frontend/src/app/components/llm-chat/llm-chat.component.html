@@ -36,8 +36,12 @@
           aria-label="Message"
           autocomplete="off" />
         <button type="submit" class="btn primary" [disabled]="!draft.trim()">Send</button>
+        <button type="button" class="btn danger" (click)="killWorker()"
+          title="Arms a one-shot crash: the next reply dies before XACK; the sweeper recovers it via XAUTOCLAIM">Kill worker</button>
         <button type="button" class="btn" (click)="reset()">Reset</button>
       </form>
+      <p class="hint">💡 Kill worker → send a message: it hangs (pending), then the sweeper recovers it.
+        Send <code>/fail …</code> to see repeated failure routed to the DLQ.</p>
     </section>
 
     <!-- Redis internals — the bridge between the chat and Redis -->
@@ -119,6 +123,25 @@
               <div class="tile"><span class="tile-val">{{ g.stats['userTokens'] || '0' }}</span><span class="tile-lbl">user tokens</span></div>
             </div>
             <p class="ts-note">RedisTimeSeries series: <code>ts:{{ cid }}:userTokens</code></p>
+
+            <h4>💀 Dead Letter Queue (chat:cid:dlq)</h4>
+            <table class="grid">
+              <thead>
+                <tr><th>msgId</th><th>content</th><th>reason</th></tr>
+              </thead>
+              <tbody>
+                @for (d of g.dlq; track d.streamId) {
+                  <tr>
+                    <td class="mono">{{ d.msgId }}</td>
+                    <td class="preview">{{ d.content }}</td>
+                    <td class="hot">{{ d.reason }}</td>
+                  </tr>
+                }
+                @if (g.dlq.length === 0) {
+                  <tr><td colspan="3" class="muted">Empty — send "/fail …" to route a message here.</td></tr>
+                }
+              </tbody>
+            </table>
           } @else {
             <p class="muted">Waiting for stream data…</p>
           }
@@ -212,5 +235,11 @@
     keyword → <code>chat:{{ cid }}:flags</code>) and <code>cg:analytics</code> (counters +
     <code>TS.ADD</code> to <code>ts:{{ cid }}:userTokens</code>). Three groups, one stream, no copy —
     see the internals panel above.</p>
+
+    <p class="fanout-note resilience">♻️ <strong>Resilience:</strong> a per-cid sweeper <code>XAUTOCLAIM</code>s
+    messages a worker took but never <code>XACK</code>ed (idle {{ '>' }} minIdle) and regenerates them —
+    so a crash mid-generation still gets a reply. After <code>maxDeliveries</code> failed attempts the
+    message is routed to <code>chat:{{ cid }}:dlq</code>. Try the <em>Kill worker</em> button, or send
+    <code>/fail …</code> to watch a message land in the DLQ.</p>
   </div>
 </div>

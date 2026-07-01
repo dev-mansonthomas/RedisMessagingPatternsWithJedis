@@ -58,6 +58,7 @@ public class LlmChatService {
     private final LlmTokenListenerService tokenListener;
     private final LlmModerationWorker moderationWorker;
     private final LlmAnalyticsWorker analyticsWorker;
+    private final LlmRecoverySweeper recoverySweeper;
     private final LlmChatProperties properties;
 
     /** cid -> last-activity epoch ms; bounds the number of live per-cid workers. */
@@ -86,6 +87,11 @@ public class LlmChatService {
     /** Analytics RedisTimeSeries of user tokens over time. */
     public static String tokensSeriesKey(String cid) {
         return "ts:" + cid + ":userTokens";
+    }
+
+    /** Dead-letter stream for messages that repeatedly fail generation. */
+    public static String dlqKey(String cid) {
+        return "chat:" + cid + ":dlq";
     }
 
     @PostConstruct
@@ -160,7 +166,16 @@ public class LlmChatService {
         responderWorker.startFor(cid);
         moderationWorker.startFor(cid);
         analyticsWorker.startFor(cid);
+        recoverySweeper.startFor(cid);
         enforceConversationCap();
+    }
+
+    /** Demo crash: arm a one-shot kill so the next generation for {@code cid} dies before XACK. */
+    public void killWorker(String cid) {
+        validateCid(cid);
+        ensureConversation(cid);
+        responderWorker.armKill(cid);
+        log.info("Armed kill for next generation of {}", chatKey(cid));
     }
 
     /** Full conversation in chronological order (read-only {@code XRANGE}). */
@@ -192,12 +207,14 @@ public class LlmChatService {
         validateCid(cid);
         List<GroupInfo> groups = new ArrayList<>();
         List<Flag> flags = new ArrayList<>();
+        List<DlqEntry> dlq = new ArrayList<>();
         Map<String, String> stats = Map.of();
         long length = 0;
         long tokenStreamLength = 0;
         try (var jedis = jedisPool.getResource()) {
             if (!jedis.exists(chatKey(cid))) {
-                return new GroupsInfo(chatKey(cid), 0, tokenKey(cid), 0, groups, flags, stats);
+                return new GroupsInfo(chatKey(cid), 0, tokenKey(cid), 0, groups, flags, stats,
+                        dlqKey(cid), dlq);
             }
             length = jedis.xlen(chatKey(cid));
             tokenStreamLength = jedis.exists(tokenKey(cid)) ? jedis.xlen(tokenKey(cid)) : 0;
@@ -222,8 +239,17 @@ public class LlmChatService {
             if (jedis.exists(statsKey(cid))) {
                 stats = jedis.hgetAll(statsKey(cid));
             }
+            if (jedis.exists(dlqKey(cid))) {
+                for (StreamEntry e : jedis.xrange(dlqKey(cid),
+                        StreamEntryID.MINIMUM_ID, StreamEntryID.MAXIMUM_ID)) {
+                    Map<String, String> f = e.getFields();
+                    dlq.add(new DlqEntry(e.getID().toString(), f.get("msgId"), f.get("content"),
+                            f.get("reason")));
+                }
+            }
         }
-        return new GroupsInfo(chatKey(cid), length, tokenKey(cid), tokenStreamLength, groups, flags, stats);
+        return new GroupsInfo(chatKey(cid), length, tokenKey(cid), tokenStreamLength, groups, flags,
+                stats, dlqKey(cid), dlq);
     }
 
     /** Delete the conversation and its token stream, stop its workers, and tell clients to clear. */
@@ -247,6 +273,7 @@ public class LlmChatService {
         tokenListener.stopFor(cid);
         moderationWorker.stopFor(cid);
         analyticsWorker.stopFor(cid);
+        recoverySweeper.stopFor(cid);
         activeConversations.remove(cid);
     }
 
@@ -324,9 +351,12 @@ public class LlmChatService {
     public record ChatTurn(String streamId, String role, String content, Long ts, String msgId, String model) {}
 
     public record GroupsInfo(String stream, long length, String tokenStream, long tokenStreamLength,
-                             List<GroupInfo> groups, List<Flag> flags, Map<String, String> stats) {}
+                             List<GroupInfo> groups, List<Flag> flags, Map<String, String> stats,
+                             String dlqStream, List<DlqEntry> dlq) {}
 
     public record GroupInfo(String name, long consumers, long pending, Long lag, String lastDeliveredId) {}
 
     public record Flag(String streamId, String msgId, String term, String reason, Long ts) {}
+
+    public record DlqEntry(String streamId, String msgId, String content, String reason) {}
 }

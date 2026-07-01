@@ -35,6 +35,9 @@ public class LlmChatProperties {
     /** Content-moderation (fan-out group cg:moderation) tuning. */
     private Moderation moderation = new Moderation();
 
+    /** Crash-recovery (XAUTOCLAIM sweeper) tuning. */
+    private Resilience resilience = new Resilience();
+
     @Data
     public static class Mock {
         /** Artificial delay between streamed tokens, in ms, for a credible "typing" effect. */
@@ -45,5 +48,17 @@ public class LlmChatProperties {
     public static class Moderation {
         /** Case-insensitive keywords; a user message containing any is flagged (illustrative). */
         private List<String> keywords = List.of("password", "secret", "ssn", "credit card", "api key");
+    }
+
+    @Data
+    public static class Resilience {
+        /** A message reclaimed more than this many times is routed to the DLQ. */
+        private int maxDeliveries = 3;
+        /** Only pending messages idle longer than this (ms) are reclaimed by the sweeper. */
+        private long minIdleMs = 4000;
+        /** How often (ms) the per-cid sweeper runs XAUTOCLAIM. */
+        private long sweepIntervalMs = 1500;
+        /** A user message whose content starts with this prefix always fails (poison → DLQ demo). */
+        private String poisonPrefix = "/fail";
     }
 }

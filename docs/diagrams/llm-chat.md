@@ -1,7 +1,8 @@
 # LLM Chat Pattern (#12)
 
-> Slices 1 (happy path + internals) and 2 (fan-out: moderation + analytics) are implemented below.
-> Resilience nodes remain future work. See `docs/specs/llm-chat.md`.
+> Slices 1 (happy path + internals), 2 (fan-out) and 3 (resilience: XAUTOCLAIM recovery + DLQ) are
+> all implemented. See `docs/specs/llm-chat.md`. (The frontend renders the same diagram, with the
+> recovery sweeper + DLQ nodes.)
 
 ## Architecture Diagram
 

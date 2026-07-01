@@ -234,6 +234,12 @@
 
   strong { color: #0f172a; }
   em { font-style: italic; color: #0f172a; }
+
+  &.resilience {
+    margin-top: 10px;
+    background: #fff7ed;
+    border-color: #fed7aa;
+  }
 }
 
 .layout {
@@ -347,7 +353,22 @@
 
   &.small { font-size: 0.78rem; padding: 6px 10px; }
 
+  &.danger {
+    background: #fef2f2;
+    color: #b91c1c;
+    border-color: #fecaca;
+    font-weight: 600;
+  }
+
   &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+.hint {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  color: #64748b;
+  border-top: 1px solid #eef2f7;
 }
 
 .internals-body {

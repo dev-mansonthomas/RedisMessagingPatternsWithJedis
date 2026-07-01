@@ -33,6 +33,7 @@ class LlmChatServiceTest extends AbstractRedisIntegrationTest {
     private LlmTokenListenerService listener;
     private LlmModerationWorker moderation;
     private LlmAnalyticsWorker analytics;
+    private LlmRecoverySweeper sweeper;
 
     @BeforeEach
     void setUpService() {
@@ -40,8 +41,9 @@ class LlmChatServiceTest extends AbstractRedisIntegrationTest {
         listener = mock(LlmTokenListenerService.class);
         moderation = mock(LlmModerationWorker.class);
         analytics = mock(LlmAnalyticsWorker.class);
+        sweeper = mock(LlmRecoverySweeper.class);
         service = new LlmChatService(jedisPool, new WebSocketEventService(new ObjectMapper()),
-                responder, listener, moderation, analytics, new LlmChatProperties());
+                responder, listener, moderation, analytics, sweeper, new LlmChatProperties());
     }
 
     @Test
@@ -178,6 +180,13 @@ class LlmChatServiceTest extends AbstractRedisIntegrationTest {
         verify(listener).stopFor("conv1");
         verify(moderation).stopFor("conv1");
         verify(analytics).stopFor("conv1");
+        verify(sweeper).stopFor("conv1");
+    }
+
+    @Test
+    void killWorkerArmsTheResponder() {
+        service.killWorker("conv1");
+        verify(responder).armKill("conv1");
     }
 
     @Test
