@@ -262,8 +262,9 @@
 }
 
 .messages {
-  height: 240px;
-  overflow-y: auto;
+  // Grows to fit the whole conversation (no internal scrollbar); the page scrolls if it exceeds the
+  // viewport. min-height is ~2× the previous fixed height so the panel reads tall from the start.
+  min-height: 480px;
   padding: 16px;
   display: flex;
   flex-direction: column;

@@ -80,6 +80,10 @@ public class LlmRecoverySweeper extends AbstractPerCidWorker {
         }
 
         for (StreamEntry entry : claimed) {
+            // A live worker may still be generating this (a long-but-healthy reply); don't double it.
+            if (responderWorker.isInFlight(cid, entry.getID())) {
+                continue;
+            }
             long deliveries = deliveredTimes(chatKey, entry.getID());
             if (deliveries > maxDeliveries) {
                 routeToDlq(cid, chatKey, entry, deliveries);

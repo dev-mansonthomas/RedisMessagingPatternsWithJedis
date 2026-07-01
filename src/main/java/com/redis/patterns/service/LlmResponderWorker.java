@@ -50,6 +50,14 @@ public class LlmResponderWorker extends AbstractPerCidWorker {
     /** Per-cid one-shot "kill" flag: aborts the next generation before XACK (demo crash). */
     private final Map<String, AtomicBoolean> killArmed = new ConcurrentHashMap<>();
 
+    /** Entries ("cid|id") currently being generated, so the sweeper won't reclaim a live (slow) one. */
+    private final java.util.Set<String> inFlight = ConcurrentHashMap.newKeySet();
+
+    /** True while a live worker is actively generating this entry (not a dead/killed one). */
+    public boolean isInFlight(String cid, StreamEntryID id) {
+        return inFlight.contains(cid + "|" + id);
+    }
+
     @Override
     protected String threadNamePrefix() {
         return "llm-responder-";
@@ -116,6 +124,10 @@ public class LlmResponderWorker extends AbstractPerCidWorker {
         String tokenKey = LlmChatService.tokenKey(cid);
         StringBuilder buffer = new StringBuilder();
 
+        // Mark this message as actively being generated so the recovery sweeper doesn't reclaim a
+        // long-but-healthy generation (which would double-produce). Removed in finally.
+        String flightKey = cid + "|" + userEntryId;
+        inFlight.add(flightKey);
         try {
             // Demo crash: a one-shot kill aborts before XACK, leaving the message pending for the sweeper.
             if (killArmed.computeIfAbsent(cid, k -> new AtomicBoolean()).getAndSet(false)) {
@@ -163,6 +175,8 @@ public class LlmResponderWorker extends AbstractPerCidWorker {
             if (buffer.length() > 0) {
                 broadcastAssistant(cid, respId, buffer.toString(), null);
             }
+        } finally {
+            inFlight.remove(flightKey);
         }
     }
 

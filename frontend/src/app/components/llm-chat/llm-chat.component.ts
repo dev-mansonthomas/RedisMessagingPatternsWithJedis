@@ -46,7 +46,6 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   private api = inject(LlmChatService);
   readonly diagrams = inject(DiagramDefinitionsService);
 
-  @ViewChild('messagesEl') private messagesEl?: ElementRef<HTMLDivElement>;
   @ViewChild('streamEl') private streamEl?: ElementRef<HTMLDivElement>;
 
   /**
@@ -179,10 +178,8 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   private pinToBottom(): void {
-    const m = this.messagesEl?.nativeElement;
-    if (m) {
-      m.scrollTop = m.scrollHeight;
-    }
+    // The transcript grows freely (no internal scroll), so only the fixed-height internals stream
+    // table is auto-followed here.
     const s = this.streamEl?.nativeElement;
     if (s) {
       s.scrollTop = s.scrollHeight;
@@ -271,6 +268,11 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   /** Demo helper: send a poison message that fails every attempt → routed to the DLQ. */
   dlqDemo(): void {
     this.sendContent('/fail this request always errors out');
+  }
+
+  /** Demo helper: trigger a long reply so the token-by-token streaming is clearly visible. */
+  longTextDemo(): void {
+    this.sendContent('Write a long text explaining Redis Streams for LLM chat.');
   }
 
   killWorker(): void {

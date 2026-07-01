@@ -15,7 +15,7 @@
   <!-- Layer 1: the demo (chat + Redis internals) comes first -->
   <div class="layout">
     <section class="panel chat-panel">
-      <div #messagesEl class="messages" role="log" aria-live="polite">
+      <div class="messages" role="log" aria-live="polite">
         @for (m of messages(); track $index) {
           <div class="bubble" [class.user]="m.role === 'user'"
             [class.assistant]="m.role === 'assistant'" [class.system]="m.role === 'system'">
@@ -52,6 +52,8 @@
           title="Sends a poison message that fails every attempt → reclaimed up to maxDeliveries → routed to the DLQ">💀 Kill &amp; DLQ</button>
         <button type="button" class="btn small" (click)="moderationDemo()"
           title="Sends a message that trips a moderation keyword (cycles password → api key → ssn)">🛡️ Moderation</button>
+        <button type="button" class="btn small" (click)="longTextDemo()"
+          title="Triggers a long reply so you can watch it stream token by token">📜 Long text</button>
       </div>
     </section>
 
