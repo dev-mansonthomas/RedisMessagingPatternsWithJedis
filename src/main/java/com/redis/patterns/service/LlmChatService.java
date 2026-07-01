@@ -9,10 +9,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.StreamEntryID;
+import redis.clients.jedis.commands.ProtocolCommand;
 import redis.clients.jedis.params.XAddParams;
 import redis.clients.jedis.resps.StreamEntry;
 import redis.clients.jedis.resps.StreamGroupInfo;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +53,7 @@ public class LlmChatService {
     public static final String MODERATION_GROUP = "cg:moderation";
     public static final String ANALYTICS_GROUP = "cg:analytics";
     private static final long CHAT_MAXLEN = 200;
+    private static final ProtocolCommand TS_RANGE = () -> "TS.RANGE".getBytes(StandardCharsets.UTF_8);
 
     private final JedisPool jedisPool;
     private final WebSocketEventService webSocketEventService;
@@ -267,6 +270,42 @@ public class LlmChatService {
         log.info("Reset conversation {}", cid);
     }
 
+    /** Analytics time series (user tokens per message over time) for the chart, via {@code TS.RANGE}. */
+    public List<SeriesPoint> tokenSeries(String cid) {
+        validateCid(cid);
+        List<SeriesPoint> points = new ArrayList<>();
+        try (var jedis = jedisPool.getResource()) {
+            if (!jedis.exists(tokensSeriesKey(cid))) {
+                return points;
+            }
+            Object raw = jedis.sendCommand(TS_RANGE, tokensSeriesKey(cid), "-", "+");
+            if (raw instanceof List<?> list) {
+                for (Object o : list) {
+                    if (o instanceof List<?> pair && pair.size() >= 2) {
+                        points.add(new SeriesPoint(toLong(pair.get(0)), toDouble(pair.get(1))));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("token series unavailable for {}: {}", cid, e.getMessage());
+        }
+        return points;
+    }
+
+    private static long toLong(Object o) {
+        if (o instanceof Long l) {
+            return l;
+        }
+        return Long.parseLong(new String((byte[]) o, StandardCharsets.UTF_8));
+    }
+
+    private static double toDouble(Object o) {
+        if (o instanceof byte[] b) {
+            return Double.parseDouble(new String(b, StandardCharsets.UTF_8));
+        }
+        return Double.parseDouble(String.valueOf(o));
+    }
+
     /** Stop the per-cid workers and drop the conversation from the active registry (keys untouched). */
     private void stopConversation(String cid) {
         responderWorker.stopFor(cid);
@@ -359,4 +398,6 @@ public class LlmChatService {
     public record Flag(String streamId, String msgId, String term, String reason, Long ts) {}
 
     public record DlqEntry(String streamId, String msgId, String content, String reason) {}
+
+    public record SeriesPoint(long ts, double value) {}
 }

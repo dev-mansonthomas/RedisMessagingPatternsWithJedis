@@ -62,6 +62,12 @@ public class LlmChatController {
         return ResponseEntity.ok(service.groups(cid));
     }
 
+    @GetMapping("/{cid}/token-series")
+    public ResponseEntity<List<LlmChatService.SeriesPoint>> tokenSeries(
+            @PathVariable @Pattern(regexp = CID_REGEX) String cid) {
+        return ResponseEntity.ok(service.tokenSeries(cid));
+    }
+
     @PostMapping("/{cid}/reset")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void reset(@PathVariable @Pattern(regexp = CID_REGEX) String cid) {

@@ -36,12 +36,22 @@
           aria-label="Message"
           autocomplete="off" />
         <button type="submit" class="btn primary" [disabled]="!draft.trim()">Send</button>
-        <button type="button" class="btn danger" (click)="killWorker()"
-          title="Arms a one-shot crash: the next reply dies before XACK; the sweeper recovers it via XAUTOCLAIM">Kill worker</button>
         <button type="button" class="btn" (click)="reset()">Reset</button>
       </form>
-      <p class="hint">💡 Kill worker → send a message: it hangs (pending), then the sweeper recovers it.
-        Send <code>/fail …</code> to see repeated failure routed to the DLQ.</p>
+
+      @if (killArmed()) {
+        <p class="armed-banner">💥 Kill armed — send a message: it crashes before <code>XACK</code>,
+          then the sweeper auto-recovers it (~5s).</p>
+      }
+
+      <div class="demo-actions">
+        <span class="demo-label">Demos:</span>
+        <button type="button" class="btn small danger" (click)="killWorker()"
+          title="Arms a one-shot crash: the next reply dies before XACK; the sweeper recovers it via XAUTOCLAIM">💥 Kill worker</button>
+        <button type="button" class="btn small" (click)="moderationDemo()"
+          title="Sends a message containing moderation keywords to trigger cg:moderation">🛡️ Moderation</button>
+        <span class="demo-hint">or send <code>/fail …</code> → DLQ</span>
+      </div>
     </section>
 
     <!-- Redis internals — the bridge between the chat and Redis -->
@@ -59,23 +69,30 @@
             </p>
 
             <h4>Conversation stream (chat:companyId:userId)</h4>
-            <table class="grid stream-grid">
-              <thead>
-                <tr><th>stream id</th><th>role</th><th>content</th></tr>
-              </thead>
-              <tbody>
-                @for (e of streamEntries(); track e.streamId) {
-                  <tr>
-                    <td class="mono">{{ e.streamId }}</td>
-                    <td>{{ e.role }}</td>
-                    <td class="preview">{{ e.content }}</td>
-                  </tr>
-                }
-                @if (streamEntries().length === 0) {
-                  <tr><td colspan="3" class="muted">Empty — send a message.</td></tr>
-                }
-              </tbody>
-            </table>
+            <div #streamEl class="stream-scroll">
+              <table class="grid stream-grid">
+                <colgroup>
+                  <col class="col-id" />
+                  <col class="col-role" />
+                  <col class="col-content" />
+                </colgroup>
+                <thead>
+                  <tr><th>stream id</th><th>role</th><th>content</th></tr>
+                </thead>
+                <tbody>
+                  @for (e of streamEntries(); track e.streamId) {
+                    <tr>
+                      <td class="mono id">{{ e.streamId }}</td>
+                      <td>{{ e.role }}</td>
+                      <td class="preview">{{ e.content }}</td>
+                    </tr>
+                  }
+                  @if (streamEntries().length === 0) {
+                    <tr><td colspan="3" class="muted">Empty — send a message.</td></tr>
+                  }
+                </tbody>
+              </table>
+            </div>
 
             <h4>Consumer groups (XINFO GROUPS)</h4>
             <table class="grid">
@@ -149,6 +166,25 @@
         </div>
       }
     </section>
+  </div>
+
+  <!-- Full-width analytics time-series chart (RedisTimeSeries) -->
+  <div class="panel chart-panel">
+    <div class="chart-head">📈 User tokens per message
+      <span class="chart-sub">RedisTimeSeries · <code>ts:{{ cid }}:userTokens</code></span>
+    </div>
+    @if (chart().n > 0) {
+      <svg class="chart-svg" [attr.viewBox]="'0 0 ' + chart().W + ' ' + chart().H"
+        preserveAspectRatio="none" role="img" aria-label="User tokens per message over time">
+        <line class="chart-axis" x1="0" [attr.y1]="chart().H - 12" [attr.x2]="chart().W" [attr.y2]="chart().H - 12"></line>
+        @for (b of chart().bars; track $index) {
+          <rect class="chart-bar" [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.w" [attr.height]="b.h"></rect>
+        }
+      </svg>
+      <div class="chart-foot"><span>peak {{ chart().max }} tokens</span><span>{{ chart().n }} messages</span></div>
+    } @else {
+      <p class="muted chart-empty">No data yet — send a few messages to plot user tokens over time.</p>
+    }
   </div>
 
   <!-- Layer 2: architecture / sequence diagrams -->

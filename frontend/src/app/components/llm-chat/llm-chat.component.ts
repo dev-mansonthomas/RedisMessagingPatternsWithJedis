@@ -6,7 +6,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subscription } from 'rxjs';
 import { WebSocketService } from '../../services/websocket.service';
-import { ChatTurn, GroupsInfo, LlmChatService } from '../../services/llm-chat.service';
+import { ChatTurn, GroupsInfo, LlmChatService, SeriesPoint } from '../../services/llm-chat.service';
 import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.component';
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 
@@ -47,6 +47,7 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   readonly diagrams = inject(DiagramDefinitionsService);
 
   @ViewChild('messagesEl') private messagesEl?: ElementRef<HTMLDivElement>;
+  @ViewChild('streamEl') private streamEl?: ElementRef<HTMLDivElement>;
 
   /**
    * Conversation identity, keyed as {@code companyId:userId} (colon-separated) so the Redis stream
@@ -68,7 +69,34 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   readonly connected = signal(false);
   readonly showInternals = signal(true);
   readonly groups = signal<GroupsInfo | null>(null);
+  /** Feedback banner after clicking "Kill worker" until the next message is sent. */
+  readonly killArmed = signal(false);
+  /** Analytics time series (user tokens per message) for the chart. */
+  readonly series = signal<SeriesPoint[]>([]);
   draft = '';
+
+  /** SVG bar-chart geometry derived from the time series (viewBox 0 0 1000 160). */
+  readonly chart = computed(() => {
+    const pts = this.series();
+    const W = 1000;
+    const H = 160;
+    const pad = 12;
+    const n = pts.length;
+    const max = Math.max(1, ...pts.map(p => p.value));
+    const slot = n ? (W - 2 * pad) / n : 0;
+    const bw = Math.min(48, slot * 0.7);
+    const bars = pts.map((p, i) => {
+      const barH = (p.value / max) * (H - 2 * pad);
+      return {
+        x: (pad + i * slot + (slot - bw) / 2).toFixed(1),
+        y: (H - pad - barH).toFixed(1),
+        w: bw.toFixed(1),
+        h: Math.max(1, barH).toFixed(1),
+        v: p.value
+      };
+    });
+    return { W, H, bars, max, n };
+  });
 
   /** Rendered chat = history turns + optimistic user + live streaming bubble (deduped). */
   readonly messages = computed<ChatMessage[]>(() => {
@@ -97,12 +125,18 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   private subs: Subscription[] = [];
   private pollTimer?: ReturnType<typeof setInterval>;
   private shouldScroll = false;
+  private shouldScrollStream = false;
 
   constructor() {
     // Auto-scroll the transcript to the bottom whenever the message list changes.
     effect(() => {
       this.messages();
       this.shouldScroll = true;
+    });
+    // Auto-scroll the live "conversation stream" table so new entries pop into view.
+    effect(() => {
+      this.streamEntries();
+      this.shouldScrollStream = true;
     });
   }
 
@@ -127,6 +161,10 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     if (this.shouldScroll && this.messagesEl) {
       this.messagesEl.nativeElement.scrollTop = this.messagesEl.nativeElement.scrollHeight;
       this.shouldScroll = false;
+    }
+    if (this.shouldScrollStream && this.streamEl) {
+      this.streamEl.nativeElement.scrollTop = this.streamEl.nativeElement.scrollHeight;
+      this.shouldScrollStream = false;
     }
   }
 
@@ -167,8 +205,18 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     if (!content) {
       return;
     }
-    this.pendingUser.set(content);
+    this.sendContent(content);
     this.draft = '';
+  }
+
+  /** Demo helper: send a message containing a moderation keyword to trigger cg:moderation. */
+  moderationDemo(): void {
+    this.sendContent('Please reset my password and email me the secret token');
+  }
+
+  private sendContent(content: string): void {
+    this.pendingUser.set(content);
+    this.killArmed.set(false); // the armed crash is about to be consumed by this generation
     this.api.postMessage(this.cid, content).subscribe({
       next: () => setTimeout(() => this.refresh(), 300),
       error: err => console.error('postMessage failed', err)
@@ -184,7 +232,10 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   killWorker(): void {
     this.api.killWorker(this.cid).subscribe({
-      next: () => this.refresh(),
+      next: () => {
+        this.killArmed.set(true);
+        this.refresh();
+      },
       error: err => console.error('kill-worker failed', err)
     });
   }
@@ -192,6 +243,14 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   refresh(): void {
     this.loadHistory();
     this.refreshGroups();
+    this.loadSeries();
+  }
+
+  private loadSeries(): void {
+    this.api.tokenSeries(this.cid).subscribe({
+      next: pts => this.series.set(pts),
+      error: () => { /* transient */ }
+    });
   }
 
   toggleInternals(): void {
@@ -226,6 +285,8 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.historyTurns.set([]);
     this.live.set(null);
     this.pendingUser.set(null);
+    this.series.set([]);
+    this.killArmed.set(false);
     this.refreshGroups();
   }
 }
