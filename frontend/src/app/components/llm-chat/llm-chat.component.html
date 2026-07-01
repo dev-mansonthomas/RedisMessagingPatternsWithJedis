@@ -211,6 +211,29 @@
   <div class="explanation-section">
     <h3 class="explanation-title">🧠 Pseudo-code / logic</h3>
 
+    <div class="redis-features">
+      <h4>🧩 Redis features used on this page</h4>
+      <ul>
+        <li><strong>Streams</strong> — the conversation (<code>chat:cid</code>), per-response tokens
+          (<code>chat:cid:tok</code>), moderation flags and the DLQ are all streams
+          (<code>XADD</code>, <code>XRANGE</code>/<code>XREVRANGE</code>, <code>XLEN</code>, <code>XREAD</code>).</li>
+        <li><strong>Consumer groups — fan-out</strong> — three groups read the same stream independently:
+          <code>cg:responder</code>, <code>cg:moderation</code>, <code>cg:analytics</code>
+          (<code>XREADGROUP</code>, <code>XACK</code>, <code>XINFO GROUPS</code>, <code>XPENDING</code>).</li>
+        <li><strong>Crash recovery + DLQ</strong> — reclaim stale-pending messages and give up after
+          N tries (<code>XAUTOCLAIM</code> → <code>chat:cid:dlq</code>).</li>
+        <li><strong>Approximate trimming</strong> — bound stream memory with <code>MAXLEN ~</code>.</li>
+        <li><strong>Hashes</strong> — analytics counters in <code>chat:cid:stats</code>
+          (<code>HINCRBY</code>, <code>HGETALL</code>).</li>
+        <li><strong>RedisTimeSeries</strong> — the tokens-over-time chart <code>ts:cid:userTokens</code>
+          (<code>TS.ADD</code>, <code>TS.RANGE … AGGREGATION</code>).</li>
+        <li><strong>Key expiry / TTL</strong> — transient token stream and the reply-timeout key
+          (<code>SETEX</code>, <code>EXPIRE</code>).</li>
+        <li><strong>Keyspace notifications</strong> — reply timeout driven by key-expiry events
+          (<code>notify-keyspace-events Ex</code>, <code>PSUBSCRIBE __keyevent&#64;0__:expired</code>).</li>
+      </ul>
+    </div>
+
     <div class="xadd-example">
       <div class="xadd-line">
         <span class="xadd-command">XADD</span>

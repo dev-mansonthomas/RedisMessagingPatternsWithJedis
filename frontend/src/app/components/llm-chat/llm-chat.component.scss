@@ -109,6 +109,25 @@
   gap: 8px;
 }
 
+.redis-features {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+
+  h4 {
+    margin: 0 0 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #0f172a;
+  }
+
+  ul { margin: 0; padding-left: 18px; }
+  li { font-size: 12.5px; line-height: 1.55; color: #334155; margin: 4px 0; }
+  strong { color: #0f172a; }
+}
+
 .xadd-example {
   margin-bottom: 16px;
   padding: 12px 16px;
