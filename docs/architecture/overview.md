@@ -43,9 +43,10 @@ Containers (`docker-compose.yml`): `redis`, `backend`, `frontend` (nginx), `redi
   regardless of source (API, worker, or RedisInsight). `StreamMonitorService` is the deprecated
   `XREADGROUP`-based predecessor (Spring profile `disabled`).
 - **`WebSocketEventService`** — thread-safe fan-out to all sessions (`CopyOnWriteArraySet`, per-session
-  sync). Broadcasts `DLQEvent` and `PubSubEvent`.
+  sync). Broadcasts `DLQEvent`, `PubSubEvent` and `LlmChatEvent` (the last filtered per subscribed cid).
 - **`KeyspaceNotificationConfig` + `KeyspaceNotificationListener`** — enables `notify-keyspace-events Ex`
-  and subscribes to `__keyevent@0__:expired` to drive Request/Reply **timeouts**.
+  and subscribes to `__keyevent@0__:expired` to drive **timeouts** for both Request/Reply and the
+  LLM Chat reply timeout (`llm:timeout:*`, pattern #12 / ADR-0010).
 - **`RedisPubSubConfig` + `RedisPubSubListener`** — blocking `SUBSCRIBE`/`PSUBSCRIBE` for the two
   pub/sub patterns, each on a **dedicated connection** (built from `RedisProperties`, not borrowed
   from the shared pool) inside a **reconnect loop** with backoff, stopped cleanly via `@PreDestroy`.

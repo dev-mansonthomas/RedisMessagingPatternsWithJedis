@@ -143,7 +143,7 @@ docker compose down -v
 <th>LLM Chat (Streams)</th>
 </tr>
 <tr>
-<td align="center"><em>screenshot pending (img/LlmChat.jpg)</em></td>
+<td align="center"><a href="img/LlmChat.jpg"><img src="img/LlmChat.jpg" alt="LLM Chat" width="400"/></a></td>
 </tr>
 <tr>
 <td align="center">Stream & replay an LLM conversation, token by token<br/>📊 <a href="docs/diagrams/llm-chat.md">Architecture & Sequence Diagrams</a></td>
@@ -345,8 +345,10 @@ Detailed contracts (Redis keys, endpoints, edge cases) live in [`docs/specs/`](d
 **What it solves**: Persist and stream an LLM conversation entirely through Redis Streams — durable,
 replayable context; token-by-token streaming; **fan-out** to moderation + analytics groups (same
 stream, no copy); **crash recovery** (`XAUTOCLAIM` reclaims a message whose worker died mid-reply and
-regenerates it) + **DLQ** for repeated failures; a live "Redis internals" view. Uses a deterministic
-mock model (offline, no API key, no cost); Ollama is on the roadmap.
+regenerates it) + **DLQ** for repeated failures; a **reply timeout via Redis keyspace notifications**
+that tells the user when a message never gets an answer; a live "Redis internals" view with a
+**RedisTimeSeries** tokens chart. One-click demo buttons (Kill & recovery, Kill & DLQ, Moderation,
+Long text). Uses a deterministic mock model (offline, no API key, no cost); Ollama is on the roadmap.
 
 **Use case**: Enterprise assistants where conversation auditability, replay and operability matter.
 
@@ -354,8 +356,9 @@ mock model (offline, no API key, no cost); Ollama is on the roadmap.
 consumer groups on the same stream** — `cg:responder` (generate), `cg:moderation` (keyword flags →
 `chat:{cid}:flags`), `cg:analytics` (`HINCRBY` stats + `TS.ADD` RedisTimeSeries); per-conversation
 token stream (`chat:{cid}:tok`) demuxed by `msgId`; `XREVRANGE` context window; **`XAUTOCLAIM`
-recovery sweeper** + `chat:{cid}:dlq`. Pluggable `LlmClient` (mock default, optional Ollama later).
-See [`docs/diagrams/llm-chat.md`](docs/diagrams/llm-chat.md).
+recovery sweeper** + `chat:{cid}:dlq`; a **reply-timeout key** (`llm:timeout:{msgId}`) whose expiry
+fires a **keyspace notification** (ADR-0007/0010). Pluggable `LlmClient` (mock default, Ollama later).
+See [`docs/diagrams/llm-chat.md`](docs/diagrams/llm-chat.md) and [`docs/specs/llm-chat.md`](docs/specs/llm-chat.md).
 
 ---
 
