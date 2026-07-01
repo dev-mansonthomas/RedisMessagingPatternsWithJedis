@@ -1,5 +1,5 @@
 import {
-  Component, OnDestroy, OnInit, signal, computed, effect, inject,
+  Component, OnDestroy, OnInit, signal, computed, inject,
   ElementRef, ViewChild, AfterViewChecked
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -97,18 +97,27 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     const xFor = (ts: number) => (n === 1 ? W / 2 : padX + ((ts - tMin) / span) * (W - 2 * padX));
     const bw = 16;
     const bars = pts.map(p => {
+      const cx = xFor(p.ts);
       const y = yFor(p.value);
       return {
-        x: (xFor(p.ts) - bw / 2).toFixed(1),
+        x: (cx - bw / 2).toFixed(1),
         y: y.toFixed(1),
         w: bw,
         h: Math.max(1, baseY - y).toFixed(1),
-        v: p.value
+        v: p.value,
+        xPct: ((cx / W) * 100).toFixed(2),
+        time: this.hms(p.ts)
       };
     });
-    const secs = Math.round(span / 1000);
-    return { W, H, n, bars, grid, max, startLabel: '0s', endLabel: n === 1 ? '' : `+${secs}s` };
+    return { W, H, n, bars, grid, max };
   });
+
+  /** Format an epoch-ms bucket timestamp as HH:MM:SS (local time) for the x-axis ticks. */
+  private hms(ts: number): string {
+    const d = new Date(ts);
+    const p = (x: number) => String(x).padStart(2, '0');
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }
 
   /** Rendered chat = history turns + optimistic user + live streaming bubble (deduped). */
   readonly messages = computed<ChatMessage[]>(() => {
@@ -136,21 +145,7 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   private subs: Subscription[] = [];
   private pollTimer?: ReturnType<typeof setInterval>;
-  private shouldScroll = false;
-  private shouldScrollStream = false;
-
-  constructor() {
-    // Auto-scroll the transcript to the bottom whenever the message list changes.
-    effect(() => {
-      this.messages();
-      this.shouldScroll = true;
-    });
-    // Auto-scroll the live "conversation stream" table so new entries pop into view.
-    effect(() => {
-      this.streamEntries();
-      this.shouldScrollStream = true;
-    });
-  }
+  private scrollScheduled = false;
 
   ngOnInit(): void {
     this.ws.connect();
@@ -170,14 +165,33 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   }
 
   ngAfterViewChecked(): void {
-    if (this.shouldScroll && this.messagesEl) {
-      this.messagesEl.nativeElement.scrollTop = this.messagesEl.nativeElement.scrollHeight;
-      this.shouldScroll = false;
+    // Pin both scrollers to the bottom so new messages/tokens are never missed. We pin synchronously
+    // AND once more deferred (setTimeout 0) because the last bubble's height is often laid out after
+    // this hook runs — the deferred pass runs post-layout and catches it. Idempotent at the bottom.
+    this.pinToBottom();
+    if (!this.scrollScheduled) {
+      this.scrollScheduled = true;
+      setTimeout(() => {
+        this.scrollScheduled = false;
+        this.pinToBottom();
+      }, 0);
     }
-    if (this.shouldScrollStream && this.streamEl) {
-      this.streamEl.nativeElement.scrollTop = this.streamEl.nativeElement.scrollHeight;
-      this.shouldScrollStream = false;
+  }
+
+  private pinToBottom(): void {
+    const m = this.messagesEl?.nativeElement;
+    if (m) {
+      m.scrollTop = m.scrollHeight;
     }
+    const s = this.streamEl?.nativeElement;
+    if (s) {
+      s.scrollTop = s.scrollHeight;
+    }
+  }
+
+  /** Pin after the browser has laid out late-arriving content (streamed reply, polled turn). */
+  private deferPin(): void {
+    setTimeout(() => this.pinToBottom(), 120);
   }
 
   ngOnDestroy(): void {
@@ -198,11 +212,13 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.live.set(lt && lt.msgId === event.msgId
           ? { msgId: lt.msgId, content: lt.content + value }
           : { msgId: event.msgId ?? '', content: value });
+        this.deferPin();
         break;
       }
       case 'ASSISTANT_MESSAGE':
         this.live.set({ msgId: event.msgId ?? '', content: event.value ?? '' });
         this.refresh(); // pull the now-complete assistant turn into history
+        this.deferPin();
         break;
       case 'CONVERSATION_RESET':
         this.clearView();
@@ -252,6 +268,11 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     });
   }
 
+  /** Demo helper: send a poison message that fails every attempt → routed to the DLQ. */
+  dlqDemo(): void {
+    this.sendContent('/fail this request always errors out');
+  }
+
   killWorker(): void {
     this.api.killWorker(this.cid).subscribe({
       next: () => {
@@ -291,6 +312,7 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         if (lt && turns.some(t => t.msgId === lt.msgId)) {
           this.live.set(null);
         }
+        this.deferPin();
       },
       error: () => { /* transient; next poll retries */ }
     });

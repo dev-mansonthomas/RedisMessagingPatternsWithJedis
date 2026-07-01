@@ -394,6 +394,13 @@
 
   &.small { font-size: 0.78rem; padding: 6px 10px; }
 
+  &.warn {
+    background: #fff7ed;
+    color: #b45309;
+    border-color: #fed7aa;
+    font-weight: 600;
+  }
+
   &.danger {
     background: #fef2f2;
     color: #b91c1c;
@@ -546,14 +553,30 @@
 .chart-bar { fill: #2563eb; }
 .chart-grid { stroke: #eef2f7; stroke-width: 1; }
 
-.x-axis {
+// Per-bar time ticks (HH:MM:SS, written vertically) aligned under each bar.
+.x-ticks {
   display: flex;
-  justify-content: space-between;
-  font-size: 0.72rem;
-  color: #64748b;
-  margin: 4px 0 0 50px;
+  gap: 8px;
+  margin-top: 2px;
+}
 
-  .axis-mid { color: #94a3b8; }
+.x-ticks-spacer { width: 42px; flex: 0 0 42px; }
+
+.x-ticks-inner {
+  position: relative;
+  flex: 1;
+  height: 62px;
+}
+
+.tick {
+  position: absolute;
+  top: 3px;
+  transform: translateX(-50%);
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font: 0.62rem/1 'Monaco', 'Menlo', monospace;
+  color: #64748b;
+  white-space: nowrap;
 }
 
 .chart-empty { padding: 20px 0; text-align: center; }

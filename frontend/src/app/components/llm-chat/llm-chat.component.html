@@ -47,11 +47,12 @@
 
       <div class="demo-actions">
         <span class="demo-label">Demos:</span>
-        <button type="button" class="btn small danger" (click)="killWorker()"
-          title="Arms a one-shot crash: the next reply dies before XACK; the sweeper recovers it via XAUTOCLAIM">💥 Kill worker</button>
+        <button type="button" class="btn small warn" (click)="killWorker()"
+          title="One-shot crash before XACK; the sweeper reclaims it via XAUTOCLAIM and regenerates → the reply recovers">💥 Kill &amp; recovery</button>
+        <button type="button" class="btn small danger" (click)="dlqDemo()"
+          title="Sends a poison message that fails every attempt → reclaimed up to maxDeliveries → routed to the DLQ">💀 Kill &amp; DLQ</button>
         <button type="button" class="btn small" (click)="moderationDemo()"
-          title="Sends a message containing moderation keywords to trigger cg:moderation">🛡️ Moderation</button>
-        <span class="demo-hint">or send <code>/fail …</code> → DLQ</span>
+          title="Sends a message that trips a moderation keyword (cycles password → api key → ssn)">🛡️ Moderation</button>
       </div>
     </section>
 
@@ -172,7 +173,7 @@
   <!-- Full-width analytics time-series chart (RedisTimeSeries) -->
   <div class="panel chart-panel">
     <div class="chart-head">📈 User tokens over time
-      <span class="chart-sub">RedisTimeSeries · sum per 2s bucket · <code>ts:{{ cid }}:userTokens</code></span>
+      <span class="chart-sub">RedisTimeSeries · sum per 10s bucket · <code>ts:{{ cid }}:userTokens</code></span>
     </div>
     @if (chart().n > 0) {
       <div class="chart-body">
@@ -187,10 +188,13 @@
           }
         </svg>
       </div>
-      <div class="x-axis">
-        <span>{{ chart().startLabel }}</span>
-        <span class="axis-mid">time →</span>
-        <span>{{ chart().endLabel }}</span>
+      <div class="x-ticks">
+        <div class="x-ticks-spacer"></div>
+        <div class="x-ticks-inner">
+          @for (b of chart().bars; track $index) {
+            <span class="tick" [style.left.%]="b.xPct">{{ b.time }}</span>
+          }
+        </div>
       </div>
     } @else {
       <p class="muted chart-empty">No data yet — send a few messages to plot user tokens over time.</p>

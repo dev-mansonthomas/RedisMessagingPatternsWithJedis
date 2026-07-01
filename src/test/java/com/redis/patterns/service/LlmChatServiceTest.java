@@ -103,10 +103,10 @@ class LlmChatServiceTest extends AbstractRedisIntegrationTest {
         redis.clients.jedis.commands.ProtocolCommand tsAdd =
                 () -> "TS.ADD".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         try (var jedis = jedisPool.getResource()) {
-            // Two samples in the same 2s bucket [0,2000) -> summed; one in a later bucket.
+            // Two samples in the same 10s bucket [0,10000) -> summed; one in the next bucket.
             jedis.sendCommand(tsAdd, "ts:conv1:userTokens", "1000", "3");
-            jedis.sendCommand(tsAdd, "ts:conv1:userTokens", "1500", "5");
-            jedis.sendCommand(tsAdd, "ts:conv1:userTokens", "5000", "4");
+            jedis.sendCommand(tsAdd, "ts:conv1:userTokens", "2000", "5");
+            jedis.sendCommand(tsAdd, "ts:conv1:userTokens", "12000", "4");
         }
 
         var points = service.tokenSeries("conv1");

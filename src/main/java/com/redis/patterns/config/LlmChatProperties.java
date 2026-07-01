@@ -21,7 +21,7 @@ public class LlmChatProperties {
     private int contextSize = 20;
 
     /** Bucket (ms) used to aggregate the user-tokens time series for the chart (TS.RANGE AGGREGATION). */
-    private long tokenChartBucketMs = 2000;
+    private long tokenChartBucketMs = 10000;
 
     /** Max concurrent conversations kept alive; least-recently-used ones are evicted beyond this. */
     private int maxConversations = 100;
