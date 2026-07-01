@@ -46,7 +46,6 @@
       }
 
       <div class="demo-actions">
-        <span class="demo-label">Demos:</span>
         <button type="button" class="btn small warn" (click)="killWorker()"
           title="One-shot crash before XACK; the sweeper reclaims it via XAUTOCLAIM and regenerates → the reply recovers">💥 Kill &amp; recovery</button>
         <button type="button" class="btn small danger" (click)="dlqDemo()"
