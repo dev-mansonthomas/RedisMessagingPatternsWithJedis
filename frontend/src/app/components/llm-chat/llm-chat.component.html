@@ -17,7 +17,8 @@
     <section class="panel chat-panel">
       <div #messagesEl class="messages" role="log" aria-live="polite">
         @for (m of messages(); track $index) {
-          <div class="bubble" [class.user]="m.role === 'user'" [class.assistant]="m.role === 'assistant'">
+          <div class="bubble" [class.user]="m.role === 'user'"
+            [class.assistant]="m.role === 'assistant'" [class.system]="m.role === 'system'">
             <span class="who">{{ m.role }}</span>
             <span class="text">{{ m.content }}<span class="cursor" *ngIf="!m.complete">▋</span></span>
           </div>
@@ -104,7 +105,7 @@
                   <tr>
                     <td>{{ grp.name }}</td>
                     <td>{{ grp.consumers }}</td>
-                    <td [class.hot]="grp.pending > 0">{{ grp.pending }}</td>
+                    <td [class.pending-alert]="grp.pending > 0">{{ grp.pending }}<span *ngIf="grp.pending > 0"> ⚠</span></td>
                     <td>{{ grp.lag ?? '—' }}</td>
                     <td class="mono">{{ grp.lastDeliveredId ?? '—' }}</td>
                   </tr>
@@ -170,18 +171,27 @@
 
   <!-- Full-width analytics time-series chart (RedisTimeSeries) -->
   <div class="panel chart-panel">
-    <div class="chart-head">📈 User tokens per message
-      <span class="chart-sub">RedisTimeSeries · <code>ts:{{ cid }}:userTokens</code></span>
+    <div class="chart-head">📈 User tokens over time
+      <span class="chart-sub">RedisTimeSeries · sum per 2s bucket · <code>ts:{{ cid }}:userTokens</code></span>
     </div>
     @if (chart().n > 0) {
-      <svg class="chart-svg" [attr.viewBox]="'0 0 ' + chart().W + ' ' + chart().H"
-        preserveAspectRatio="none" role="img" aria-label="User tokens per message over time">
-        <line class="chart-axis" x1="0" [attr.y1]="chart().H - 12" [attr.x2]="chart().W" [attr.y2]="chart().H - 12"></line>
-        @for (b of chart().bars; track $index) {
-          <rect class="chart-bar" [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.w" [attr.height]="b.h"></rect>
-        }
-      </svg>
-      <div class="chart-foot"><span>peak {{ chart().max }} tokens</span><span>{{ chart().n }} messages</span></div>
+      <div class="chart-body">
+        <div class="y-axis"><span>{{ chart().max }}</span><span>tokens</span><span>0</span></div>
+        <svg class="chart-svg" [attr.viewBox]="'0 0 ' + chart().W + ' ' + chart().H"
+          preserveAspectRatio="none" role="img" aria-label="User tokens over time">
+          @for (g of chart().grid; track $index) {
+            <line class="chart-grid" x1="0" [attr.y1]="g.y" [attr.x2]="chart().W" [attr.y2]="g.y"></line>
+          }
+          @for (b of chart().bars; track $index) {
+            <rect class="chart-bar" [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.w" [attr.height]="b.h"></rect>
+          }
+        </svg>
+      </div>
+      <div class="x-axis">
+        <span>{{ chart().startLabel }}</span>
+        <span class="axis-mid">time →</span>
+        <span>{{ chart().endLabel }}</span>
+      </div>
     } @else {
       <p class="muted chart-empty">No data yet — send a few messages to plot user tokens over time.</p>
     }

@@ -278,7 +278,11 @@ public class LlmChatService {
             if (!jedis.exists(tokensSeriesKey(cid))) {
                 return points;
             }
-            Object raw = jedis.sendCommand(TS_RANGE, tokensSeriesKey(cid), "-", "+");
+            // Aggregate tokens into fixed time buckets so bursts read as taller bars and the x-axis
+            // reflects send rate (rather than one bar per message).
+            String bucket = String.valueOf(properties.getTokenChartBucketMs());
+            Object raw = jedis.sendCommand(TS_RANGE, tokensSeriesKey(cid), "-", "+",
+                    "AGGREGATION", "sum", bucket);
             if (raw instanceof List<?> list) {
                 for (Object o : list) {
                     if (o instanceof List<?> pair && pair.size() >= 2) {

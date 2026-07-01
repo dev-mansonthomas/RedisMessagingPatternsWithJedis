@@ -11,7 +11,7 @@ import { MermaidDiagramComponent } from '../mermaid-diagram/mermaid-diagram.comp
 import { DiagramDefinitionsService } from '../../services/diagram-definitions.service';
 
 interface ChatMessage {
-  role: 'user' | 'assistant';
+  role: string; // 'user' | 'assistant' | 'system' (moderation policy notice)
   content: string;
   complete: boolean;
   msgId?: string;
@@ -75,34 +75,46 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   readonly series = signal<SeriesPoint[]>([]);
   draft = '';
 
-  /** SVG bar-chart geometry derived from the time series (viewBox 0 0 1000 160). */
+  /** SVG chart geometry (viewBox 0 0 1000 160): bars positioned on a real time x-axis + gridlines. */
   readonly chart = computed(() => {
     const pts = this.series();
     const W = 1000;
     const H = 160;
-    const pad = 12;
+    const padX = 16;
+    const padTop = 12;
+    const padBot = 14;
     const n = pts.length;
     const max = Math.max(1, ...pts.map(p => p.value));
-    const slot = n ? (W - 2 * pad) / n : 0;
-    const bw = Math.min(48, slot * 0.7);
-    const bars = pts.map((p, i) => {
-      const barH = (p.value / max) * (H - 2 * pad);
+    const yFor = (v: number) => (H - padBot) - (v / max) * (H - padTop - padBot);
+    const baseY = yFor(0);
+    const grid = [max, max / 2, 0].map(v => ({ y: yFor(v).toFixed(1), label: String(Math.round(v)) }));
+    if (n === 0) {
+      return { W, H, n, bars: [], grid, max, startLabel: '', endLabel: '' };
+    }
+    const tMin = pts[0].ts;
+    const tMax = pts[n - 1].ts;
+    const span = Math.max(1, tMax - tMin);
+    const xFor = (ts: number) => (n === 1 ? W / 2 : padX + ((ts - tMin) / span) * (W - 2 * padX));
+    const bw = 16;
+    const bars = pts.map(p => {
+      const y = yFor(p.value);
       return {
-        x: (pad + i * slot + (slot - bw) / 2).toFixed(1),
-        y: (H - pad - barH).toFixed(1),
-        w: bw.toFixed(1),
-        h: Math.max(1, barH).toFixed(1),
+        x: (xFor(p.ts) - bw / 2).toFixed(1),
+        y: y.toFixed(1),
+        w: bw,
+        h: Math.max(1, baseY - y).toFixed(1),
         v: p.value
       };
     });
-    return { W, H, bars, max, n };
+    const secs = Math.round(span / 1000);
+    return { W, H, n, bars, grid, max, startLabel: '0s', endLabel: n === 1 ? '' : `+${secs}s` };
   });
 
   /** Rendered chat = history turns + optimistic user + live streaming bubble (deduped). */
   readonly messages = computed<ChatMessage[]>(() => {
     const turns = this.historyTurns();
     const out: ChatMessage[] = turns.map(t => ({
-      role: t.role === 'assistant' ? 'assistant' : 'user',
+      role: t.role ?? 'user',
       content: t.content ?? '',
       complete: true,
       msgId: t.msgId,

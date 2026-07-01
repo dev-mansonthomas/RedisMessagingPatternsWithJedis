@@ -20,6 +20,9 @@ public class LlmChatProperties {
     /** Number of most-recent turns fed back to the LLM as context (via {@code XREVRANGE COUNT N}). */
     private int contextSize = 20;
 
+    /** Bucket (ms) used to aggregate the user-tokens time series for the chart (TS.RANGE AGGREGATION). */
+    private long tokenChartBucketMs = 2000;
+
     /** Max concurrent conversations kept alive; least-recently-used ones are evicted beyond this. */
     private int maxConversations = 100;
 
@@ -53,11 +56,11 @@ public class LlmChatProperties {
     @Data
     public static class Resilience {
         /** A message reclaimed more than this many times is routed to the DLQ. */
-        private int maxDeliveries = 3;
+        private int maxDeliveries = 2;
         /** Only pending messages idle longer than this (ms) are reclaimed by the sweeper. */
-        private long minIdleMs = 4000;
+        private long minIdleMs = 3000;
         /** How often (ms) the per-cid sweeper runs XAUTOCLAIM. */
-        private long sweepIntervalMs = 1500;
+        private long sweepIntervalMs = 1000;
         /** A user message whose content starts with this prefix always fails (poison → DLQ demo). */
         private String poisonPrefix = "/fail";
     }

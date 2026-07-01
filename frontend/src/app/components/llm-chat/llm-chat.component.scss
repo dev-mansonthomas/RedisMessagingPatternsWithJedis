@@ -302,6 +302,18 @@
     border: 1px solid #e2e8f0;
     border-bottom-left-radius: 3px;
   }
+
+  // Moderation policy notice.
+  &.system {
+    align-self: center;
+    max-width: 92%;
+    background: #fef2f2;
+    color: #7f1d1d;
+    border: 1px solid #fecaca;
+    font-size: 0.85rem;
+
+    .who { color: #b91c1c; }
+  }
 }
 
 .cursor {
@@ -506,24 +518,56 @@
   .chart-sub { font-weight: 400; font-size: 0.76rem; color: #64748b; margin-left: 8px; }
 }
 
+.chart-body {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.y-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  width: 42px;
+  height: 160px;
+  font-size: 0.7rem;
+  color: #64748b;
+  padding: 2px 0;
+}
+
 .chart-svg {
-  width: 100%;
+  flex: 1;
   height: 160px;
   display: block;
+  border-left: 1px solid #e2e8f0;
 }
 
 .chart-bar { fill: #2563eb; }
-.chart-axis { stroke: #cbd5e1; stroke-width: 1; }
+.chart-grid { stroke: #eef2f7; stroke-width: 1; }
 
-.chart-foot {
+.x-axis {
   display: flex;
   justify-content: space-between;
   font-size: 0.72rem;
   color: #64748b;
-  margin-top: 4px;
+  margin: 4px 0 0 50px;
+
+  .axis-mid { color: #94a3b8; }
 }
 
 .chart-empty { padding: 20px 0; text-align: center; }
+
+// Blinking red pending indicator: a message is failing / awaiting recovery.
+.pending-alert {
+  color: #dc2626 !important;
+  font-weight: 700;
+  animation: pending-blink 1s steps(2, start) infinite;
+}
+
+@keyframes pending-blink {
+  50% { opacity: 0.25; }
+}
 
 code {
   background: #f1f5f9;

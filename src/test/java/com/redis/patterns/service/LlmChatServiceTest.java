@@ -99,20 +99,21 @@ class LlmChatServiceTest extends AbstractRedisIntegrationTest {
     }
 
     @Test
-    void tokenSeriesParsesTimeSeriesPoints() {
+    void tokenSeriesAggregatesIntoTimeBuckets() {
         redis.clients.jedis.commands.ProtocolCommand tsAdd =
                 () -> "TS.ADD".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         try (var jedis = jedisPool.getResource()) {
+            // Two samples in the same 2s bucket [0,2000) -> summed; one in a later bucket.
             jedis.sendCommand(tsAdd, "ts:conv1:userTokens", "1000", "3");
-            jedis.sendCommand(tsAdd, "ts:conv1:userTokens", "2000", "5");
+            jedis.sendCommand(tsAdd, "ts:conv1:userTokens", "1500", "5");
+            jedis.sendCommand(tsAdd, "ts:conv1:userTokens", "5000", "4");
         }
 
         var points = service.tokenSeries("conv1");
 
         assertThat(points).hasSize(2);
-        assertThat(points.get(0).ts()).isEqualTo(1000);
-        assertThat(points.get(0).value()).isEqualTo(3.0);
-        assertThat(points.get(1).value()).isEqualTo(5.0);
+        assertThat(points.get(0).value()).isEqualTo(8.0);  // 3 + 5 summed in the first bucket
+        assertThat(points.get(1).value()).isEqualTo(4.0);
     }
 
     @Test
