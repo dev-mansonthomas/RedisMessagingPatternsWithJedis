@@ -222,6 +222,20 @@
   justify-content: center;
 }
 
+.fanout-note {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #334155;
+  background: #eef6ff;
+  border: 1px solid #cfe0f5;
+  border-radius: 6px;
+
+  strong { color: #0f172a; }
+  em { font-style: italic; color: #0f172a; }
+}
+
 .layout {
   display: grid;
   // Chat kept compact; Redis internals gets the bulk of the width.
@@ -352,6 +366,32 @@
     letter-spacing: 0.05em;
     color: #64748b;
   }
+}
+
+.tiles {
+  display: flex;
+  gap: 10px;
+  margin: 4px 0 6px;
+}
+
+.tile {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+
+  .tile-val { font-size: 1.25rem; font-weight: 700; color: #0f172a; }
+  .tile-lbl { font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+}
+
+.ts-note {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin: 0;
 }
 
 .grid {

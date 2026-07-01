@@ -48,12 +48,16 @@ public class LlmChatService {
     private static final int MAX_CONTENT_LENGTH = 4000;
 
     public static final String RESPONDER_GROUP = "cg:responder";
+    public static final String MODERATION_GROUP = "cg:moderation";
+    public static final String ANALYTICS_GROUP = "cg:analytics";
     private static final long CHAT_MAXLEN = 200;
 
     private final JedisPool jedisPool;
     private final WebSocketEventService webSocketEventService;
     private final LlmResponderWorker responderWorker;
     private final LlmTokenListenerService tokenListener;
+    private final LlmModerationWorker moderationWorker;
+    private final LlmAnalyticsWorker analyticsWorker;
     private final LlmChatProperties properties;
 
     /** cid -> last-activity epoch ms; bounds the number of live per-cid workers. */
@@ -67,6 +71,21 @@ public class LlmChatService {
 
     public static String tokenKey(String cid) {
         return "chat:" + cid + ":tok";
+    }
+
+    /** Moderation flags (fan-out group cg:moderation). */
+    public static String flagsKey(String cid) {
+        return "chat:" + cid + ":flags";
+    }
+
+    /** Analytics counters hash (fan-out group cg:analytics). */
+    public static String statsKey(String cid) {
+        return "chat:" + cid + ":stats";
+    }
+
+    /** Analytics RedisTimeSeries of user tokens over time. */
+    public static String tokensSeriesKey(String cid) {
+        return "ts:" + cid + ":userTokens";
     }
 
     @PostConstruct
@@ -128,12 +147,19 @@ public class LlmChatService {
         activeConversations.put(cid, System.currentTimeMillis());
         try (var jedis = jedisPool.getResource()) {
             // Create at "$" (last id) on a fresh stream (MKSTREAM). Because this runs before the
-            // first XADD, the group's baseline precedes every user message, so none are missed.
+            // first XADD, each group's baseline precedes every user message, so none are missed.
+            // Fan-out: three groups read the SAME stream independently, no copy.
             RedisStreamSupport.ensureGroup(jedis, chatKey(cid), RESPONDER_GROUP,
+                    StreamEntryID.XGROUP_LAST_ENTRY);
+            RedisStreamSupport.ensureGroup(jedis, chatKey(cid), MODERATION_GROUP,
+                    StreamEntryID.XGROUP_LAST_ENTRY);
+            RedisStreamSupport.ensureGroup(jedis, chatKey(cid), ANALYTICS_GROUP,
                     StreamEntryID.XGROUP_LAST_ENTRY);
         }
         tokenListener.startFor(cid);
         responderWorker.startFor(cid);
+        moderationWorker.startFor(cid);
+        analyticsWorker.startFor(cid);
         enforceConversationCap();
     }
 
@@ -165,11 +191,13 @@ public class LlmChatService {
     public GroupsInfo groups(String cid) {
         validateCid(cid);
         List<GroupInfo> groups = new ArrayList<>();
+        List<Flag> flags = new ArrayList<>();
+        Map<String, String> stats = Map.of();
         long length = 0;
         long tokenStreamLength = 0;
         try (var jedis = jedisPool.getResource()) {
             if (!jedis.exists(chatKey(cid))) {
-                return new GroupsInfo(chatKey(cid), 0, tokenKey(cid), 0, groups);
+                return new GroupsInfo(chatKey(cid), 0, tokenKey(cid), 0, groups, flags, stats);
             }
             length = jedis.xlen(chatKey(cid));
             tokenStreamLength = jedis.exists(tokenKey(cid)) ? jedis.xlen(tokenKey(cid)) : 0;
@@ -182,8 +210,20 @@ public class LlmChatService {
                         lag instanceof Number n ? n.longValue() : null,
                         g.getLastDeliveredId() == null ? null : g.getLastDeliveredId().toString()));
             }
+            // Fan-out outputs: moderation flags + analytics counters.
+            if (jedis.exists(flagsKey(cid))) {
+                for (StreamEntry e : jedis.xrange(flagsKey(cid),
+                        StreamEntryID.MINIMUM_ID, StreamEntryID.MAXIMUM_ID)) {
+                    Map<String, String> f = e.getFields();
+                    flags.add(new Flag(e.getID().toString(), f.get("msgId"), f.get("term"),
+                            f.get("reason"), parseLongOrNull(f.get("ts"))));
+                }
+            }
+            if (jedis.exists(statsKey(cid))) {
+                stats = jedis.hgetAll(statsKey(cid));
+            }
         }
-        return new GroupsInfo(chatKey(cid), length, tokenKey(cid), tokenStreamLength, groups);
+        return new GroupsInfo(chatKey(cid), length, tokenKey(cid), tokenStreamLength, groups, flags, stats);
     }
 
     /** Delete the conversation and its token stream, stop its workers, and tell clients to clear. */
@@ -205,6 +245,8 @@ public class LlmChatService {
     private void stopConversation(String cid) {
         responderWorker.stopFor(cid);
         tokenListener.stopFor(cid);
+        moderationWorker.stopFor(cid);
+        analyticsWorker.stopFor(cid);
         activeConversations.remove(cid);
     }
 
@@ -282,7 +324,9 @@ public class LlmChatService {
     public record ChatTurn(String streamId, String role, String content, Long ts, String msgId, String model) {}
 
     public record GroupsInfo(String stream, long length, String tokenStream, long tokenStreamLength,
-                             List<GroupInfo> groups) {}
+                             List<GroupInfo> groups, List<Flag> flags, Map<String, String> stats) {}
 
     public record GroupInfo(String name, long consumers, long pending, Long lag, String lastDeliveredId) {}
+
+    public record Flag(String streamId, String msgId, String term, String reason, Long ts) {}
 }

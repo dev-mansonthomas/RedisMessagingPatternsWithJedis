@@ -4,6 +4,8 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.List;
+
 /**
  * Configuration for the LLM Chat pattern (#12), loaded from {@code application.yml} under {@code llm}.
  */
@@ -30,9 +32,18 @@ public class LlmChatProperties {
     /** Mock-client tuning. */
     private Mock mock = new Mock();
 
+    /** Content-moderation (fan-out group cg:moderation) tuning. */
+    private Moderation moderation = new Moderation();
+
     @Data
     public static class Mock {
         /** Artificial delay between streamed tokens, in ms, for a credible "typing" effect. */
         private long tokenDelayMs = 40;
+    }
+
+    @Data
+    public static class Moderation {
+        /** Case-insensitive keywords; a user message containing any is flagged (illustrative). */
+        private List<String> keywords = List.of("password", "secret", "ssn", "credit card", "api key");
     }
 }
