@@ -17,6 +17,7 @@ export interface GroupInfo {
   pending: number;
   lag?: number;
   lastDeliveredId?: string;
+  pendingState?: string; // 'processing' (normal wait) | 'failing' (stuck / awaiting recovery)
 }
 
 export interface Flag {

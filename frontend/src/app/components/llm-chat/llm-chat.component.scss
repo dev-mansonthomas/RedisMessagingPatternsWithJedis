@@ -583,7 +583,17 @@
 
 .chart-empty { padding: 20px 0; text-align: center; }
 
-// Blinking red pending indicator: a message is failing / awaiting recovery.
+.pending-ico {
+  margin-left: 4px;
+}
+
+// Normal wait: a live worker is generating — blue hourglass, no blink.
+.pending-wait {
+  color: #2563eb !important;
+  font-weight: 600;
+}
+
+// Failing: pending but nobody is working on it (killed/crashed/poison) — red ⚠, blinking.
 .pending-alert {
   color: #dc2626 !important;
   font-weight: 700;

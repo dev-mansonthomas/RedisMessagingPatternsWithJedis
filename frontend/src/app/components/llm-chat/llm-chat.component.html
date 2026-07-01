@@ -107,7 +107,10 @@
                   <tr>
                     <td>{{ grp.name }}</td>
                     <td>{{ grp.consumers }}</td>
-                    <td [class.pending-alert]="grp.pending > 0">{{ grp.pending }}<span *ngIf="grp.pending > 0"> ⚠</span></td>
+                    <td [class.pending-wait]="grp.pendingState === 'processing'"
+                        [class.pending-alert]="grp.pendingState === 'failing'">{{ grp.pending }}<span
+                        *ngIf="grp.pendingState === 'processing'" class="pending-ico">&#8987;&#xFE0E;</span><span
+                        *ngIf="grp.pendingState === 'failing'" class="pending-ico">&#9888;&#xFE0E;</span></td>
                     <td>{{ grp.lag ?? '—' }}</td>
                     <td class="mono">{{ grp.lastDeliveredId ?? '—' }}</td>
                   </tr>

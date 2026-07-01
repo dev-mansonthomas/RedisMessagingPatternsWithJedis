@@ -11,8 +11,10 @@ import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.StreamEntryID;
 import redis.clients.jedis.commands.ProtocolCommand;
 import redis.clients.jedis.params.XAddParams;
+import redis.clients.jedis.params.XPendingParams;
 import redis.clients.jedis.resps.StreamEntry;
 import redis.clients.jedis.resps.StreamGroupInfo;
+import redis.clients.jedis.resps.StreamPendingEntry;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -228,7 +230,8 @@ public class LlmChatService {
                         g.getConsumers(),
                         g.getPending(),
                         lag instanceof Number n ? n.longValue() : null,
-                        g.getLastDeliveredId() == null ? null : g.getLastDeliveredId().toString()));
+                        g.getLastDeliveredId() == null ? null : g.getLastDeliveredId().toString(),
+                        pendingState(jedis, cid, g)));
             }
             // Fan-out outputs: moderation flags + analytics counters.
             if (jedis.exists(flagsKey(cid))) {
@@ -268,6 +271,28 @@ public class LlmChatService {
                 .ts(System.currentTimeMillis())
                 .build());
         log.info("Reset conversation {}", cid);
+    }
+
+    /**
+     * Classify a group's pending: {@code "processing"} (a live worker is actively generating — a
+     * normal wait) vs {@code "failing"} (pending but nobody is working on it — killed/crashed/poison,
+     * awaiting sweeper reclaim). Only the responder group can "fail"; the fan-out groups ACK inline.
+     */
+    private String pendingState(redis.clients.jedis.Jedis jedis, String cid, StreamGroupInfo g) {
+        if (g.getPending() == 0) {
+            return null;
+        }
+        if (!RESPONDER_GROUP.equals(g.getName())) {
+            return "processing";
+        }
+        for (StreamPendingEntry pe : jedis.xpending(chatKey(cid), RESPONDER_GROUP,
+                XPendingParams.xPendingParams()
+                        .start(StreamEntryID.MINIMUM_ID).end(StreamEntryID.MAXIMUM_ID).count(50))) {
+            if (!responderWorker.isInFlight(cid, pe.getID())) {
+                return "failing"; // delivered but no live worker is generating it
+            }
+        }
+        return "processing";
     }
 
     /** Analytics time series (user tokens per message over time) for the chart, via {@code TS.RANGE}. */
@@ -397,7 +422,8 @@ public class LlmChatService {
                              List<GroupInfo> groups, List<Flag> flags, Map<String, String> stats,
                              String dlqStream, List<DlqEntry> dlq) {}
 
-    public record GroupInfo(String name, long consumers, long pending, Long lag, String lastDeliveredId) {}
+    public record GroupInfo(String name, long consumers, long pending, Long lag, String lastDeliveredId,
+                            String pendingState) {}
 
     public record Flag(String streamId, String msgId, String term, String reason, Long ts) {}
 
