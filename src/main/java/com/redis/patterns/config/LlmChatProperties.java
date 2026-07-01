@@ -58,7 +58,7 @@ public class LlmChatProperties {
         /** A message reclaimed more than this many times is routed to the DLQ. */
         private int maxDeliveries = 2;
         /** Only pending messages idle longer than this (ms) are reclaimed by the sweeper. */
-        private long minIdleMs = 3000;
+        private long minIdleMs = 2000;
         /** How often (ms) the per-cid sweeper runs XAUTOCLAIM. */
         private long sweepIntervalMs = 1000;
         /** A user message whose content starts with this prefix always fails (poison → DLQ demo). */

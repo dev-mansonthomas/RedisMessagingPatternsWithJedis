@@ -221,9 +221,19 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     this.draft = '';
   }
 
-  /** Demo helper: send a message containing a moderation keyword to trigger cg:moderation. */
+  /** Cycles through messages that trip different moderation keywords on each click. */
+  private readonly moderationSamples = [
+    'Can you remind me my account password?',            // -> "password"
+    'Store this for later: my api key is sk-live-abc123', // -> "api key"
+    'My SSN is 078-05-1120 — is that on file?'            // -> "ssn"
+  ];
+  private modIndex = 0;
+
+  /** Demo helper: send a message that trips cg:moderation (different keyword each click). */
   moderationDemo(): void {
-    this.sendContent('Please reset my password and email me the secret token');
+    const msg = this.moderationSamples[this.modIndex % this.moderationSamples.length];
+    this.modIndex++;
+    this.sendContent(msg);
   }
 
   private sendContent(content: string): void {
