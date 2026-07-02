@@ -48,9 +48,15 @@ Testable criteria:
       partial tokens).
 - [x] Given the group exists, when `GET /api/llm-chat/{cid}/groups`, then it returns `cg:responder`
       with `pending`, `lag`, `last-delivered-id`, `consumers` (from `XINFO GROUPS`).
-- [x] Given a live conversation, when `POST /api/llm-chat/{cid}/reset`, then `chat:{cid}` and
-      `chat:{cid}:tok` are deleted (`XLEN` → 0 / key missing) and a `CONVERSATION_RESET`
-      `LlmChatEvent` is broadcast.
+- [x] Given a live conversation, when `POST /api/llm-chat/{cid}/reset`, then **every** per-`cid`
+      key is deleted — `chat:{cid}`, `chat:{cid}:tok`, `chat:{cid}:flags`, `chat:{cid}:stats`,
+      `chat:{cid}:dlq`, `ts:{cid}:userTokens` (surgical `DEL`, never a flush) — and a
+      `CONVERSATION_RESET` `LlmChatEvent` is broadcast. Reset is the **only** operation that deletes
+      LLM-chat data; the cid itself is kept so the (now empty) conversation continues under the same
+      identity.
+- [x] Given a browser reload, the conversation is restored: the frontend persists the cid in
+      `localStorage` (`redis-llm-chat-cid`) and reloads `chat:{cid}` via `GET /history` — the Redis
+      stream is the source of truth, so nothing is lost on refresh.
 - [x] Given the same seeded input twice (same context), the `MockLlmClient` produces the **same**
       token sequence (deterministic → reproducible demo).
 - [x] Two concurrent conversations (`cid=a`, `cid=b`) do not cross tokens: a client filtering on

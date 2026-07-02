@@ -182,17 +182,26 @@ class LlmChatServiceTest extends AbstractRedisIntegrationTest {
     }
 
     @Test
-    void resetDeletesConversationAndTokenStreams() {
+    void resetDeletesEveryConversationKey() {
         try (var jedis = jedisPool.getResource()) {
             jedis.xadd("chat:conv1", XAddParams.xAddParams(), Map.of("role", "user", "content", "x"));
             jedis.xadd("chat:conv1:tok", XAddParams.xAddParams(), Map.of("token", "x", "msgId", "r1"));
+            jedis.xadd("chat:conv1:flags", XAddParams.xAddParams(), Map.of("term", "password"));
+            jedis.hset("chat:conv1:stats", "userMessages", "3");
+            jedis.xadd("chat:conv1:dlq", XAddParams.xAddParams(), Map.of("reason", "poison"));
+            jedis.sendCommand(redis.clients.jedis.Protocol.Command.SET, "ts:conv1:userTokens", "1"); // stand-in key
         }
 
         service.reset("conv1");
 
         try (var jedis = jedisPool.getResource()) {
+            // Reset is the ONLY deleter of LLM-chat data, and it removes every per-cid key surgically.
             assertThat(jedis.exists("chat:conv1")).isFalse();
             assertThat(jedis.exists("chat:conv1:tok")).isFalse();
+            assertThat(jedis.exists("chat:conv1:flags")).isFalse();
+            assertThat(jedis.exists("chat:conv1:stats")).isFalse();
+            assertThat(jedis.exists("chat:conv1:dlq")).isFalse();
+            assertThat(jedis.exists("ts:conv1:userTokens")).isFalse();
         }
     }
 

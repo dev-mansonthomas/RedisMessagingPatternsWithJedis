@@ -49,15 +49,38 @@ export class LlmChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   @ViewChild('messagesEl') private messagesEl?: ElementRef<HTMLDivElement>;
   @ViewChild('streamEl') private streamEl?: ElementRef<HTMLDivElement>;
 
+  /** localStorage key holding the persisted conversation id (see {@link cid}). */
+  private static readonly CID_STORAGE_KEY = 'redis-llm-chat-cid';
+
   /**
    * Conversation identity, keyed as {@code companyId:userId} (colon-separated) so the Redis stream
    * reads like a real multi-tenant key: {@code chat:acme-corp:u-<random>}. The userId keeps a random
    * suffix so the cid also acts as an unguessable capability (no auth — ADR-0008): the server only
    * delivers a conversation's events to sessions that subscribed with its exact cid.
+   *
+   * <p>Persisted in {@code localStorage} so a page reload restores the same conversation — the Redis
+   * stream {@code chat:{cid}} is the source of truth and is reloaded via REST on init. Generated once
+   * per browser; only <b>Reset</b> deletes the conversation's Redis keys, and it keeps the same cid so
+   * the (now empty) conversation continues under the same identity.
    */
   readonly companyId = 'acme-corp';
-  readonly userId = 'u-' + crypto.randomUUID().slice(0, 8);
-  readonly cid = `${this.companyId}:${this.userId}`;
+  readonly cid = LlmChatComponent.loadOrCreateCid(this.companyId);
+
+  private static loadOrCreateCid(companyId: string): string {
+    const fresh = () => `${companyId}:u-${crypto.randomUUID().slice(0, 8)}`;
+    try {
+      const stored = localStorage.getItem(LlmChatComponent.CID_STORAGE_KEY);
+      if (stored) {
+        return stored;
+      }
+      const cid = fresh();
+      localStorage.setItem(LlmChatComponent.CID_STORAGE_KEY, cid);
+      return cid;
+    } catch {
+      // localStorage unavailable (private mode / SSR) — fall back to an ephemeral cid.
+      return fresh();
+    }
+  }
 
   /** Source of truth: completed turns from Redis (via REST). */
   private readonly historyTurns = signal<ChatTurn[]>([]);
