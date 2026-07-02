@@ -191,7 +191,8 @@ Edge cases:
 Backend (JUnit + a Redis test instance / Testcontainers — none exist yet, this introduces the first
 backend tests):
 - `LlmChatServiceTest` — `postMessage` appends a `user` entry with correct fields; `cid` validation
-  rejects bad input; `history` returns chronological `XRANGE`; `reset` deletes both keys.
+  rejects bad input; `history` returns chronological `XRANGE`; `reset` deletes all six per-cid keys
+  (`chat:{cid}`, `:tok`, `:flags`, `:stats`, `:dlq`, `ts:{cid}:userTokens`).
 - `LlmResponderWorkerTest` — a `user` entry yields tokens on `chat:{cid}:tok` + one `assistant`
   entry whose content = concatenated tokens + `XACK` (pending → 0); a non-`user` entry is ACKed with
   no generation; deterministic mock output for identical context.
