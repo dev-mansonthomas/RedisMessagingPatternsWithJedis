@@ -276,12 +276,17 @@ public class LlmChatService {
                 stats, dlqKey(cid), dlq);
     }
 
-    /** Delete the conversation and its token stream, stop its workers, and tell clients to clear. */
+    /**
+     * Delete every Redis key for this conversation, stop its workers, and tell clients to clear.
+     * This is the ONLY operation that deletes LLM-chat data — surgical per-cid `DEL`, never a flush.
+     * (Per-message {@code llm:timeout:*} keys aren't cid-addressable but are short-lived / TTL'd.)
+     */
     public void reset(String cid) {
         validateCid(cid);
         stopConversation(cid);
         try (var jedis = jedisPool.getResource()) {
-            jedis.del(chatKey(cid), tokenKey(cid));
+            jedis.del(chatKey(cid), tokenKey(cid), flagsKey(cid), statsKey(cid),
+                    dlqKey(cid), tokensSeriesKey(cid));
         }
         webSocketEventService.broadcastEvent(LlmChatEvent.builder()
                 .eventType(LlmChatEvent.EventType.CONVERSATION_RESET)
