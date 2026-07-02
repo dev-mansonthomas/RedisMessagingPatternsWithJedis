@@ -27,8 +27,9 @@ public class LlmChatProperties {
      * Per-message reply timeout (seconds). A key is set on send and deleted when the reply completes;
      * if it expires first, a Redis keyspace notification tells the user their message failed.
      * Must exceed a normal/long generation and the crash-recovery window so it fires only on real failures.
+     * Tuned so the notice lands just after a poison message reaches the DLQ (DLQ ~7s, timeout ~8s).
      */
-    private long timeoutSeconds = 10;
+    private long timeoutSeconds = 8;
 
     /** Max concurrent conversations kept alive; least-recently-used ones are evicted beyond this. */
     private int maxConversations = 100;
@@ -64,10 +65,14 @@ public class LlmChatProperties {
     public static class Resilience {
         /** A message reclaimed more than this many times is routed to the DLQ. */
         private int maxDeliveries = 2;
-        /** Only pending messages idle longer than this (ms) are reclaimed by the sweeper. */
-        private long minIdleMs = 2000;
-        /** How often (ms) the per-cid sweeper runs XAUTOCLAIM. */
-        private long sweepIntervalMs = 1000;
+        /**
+         * Only pending messages idle longer than this (ms) are reclaimed by the sweeper. Also paces
+         * the poison→DLQ demo: with a 500ms sweep the two reclaim cycles land at ~3.5s and ~7.0s, so
+         * a poison message reaches the DLQ at ~7s — just before the reply timeout (~8s).
+         */
+        private long minIdleMs = 3250;
+        /** How often (ms) the per-cid sweeper runs XAUTOCLAIM (500ms → DLQ timing clears sweep-boundary jitter). */
+        private long sweepIntervalMs = 500;
         /** A user message whose content starts with this prefix always fails (poison → DLQ demo). */
         private String poisonPrefix = "/fail";
     }

@@ -287,7 +287,8 @@ factors the `XREADGROUP` loop + `role != user → skip` guard + `XACK`). Both pr
 ### Post-slice-3 additions — IMPLEMENTED
 
 - **Reply timeout via keyspace notifications** (extends ADR-0007, see ADR-0010). `postMessage` sets
-  `llm:timeout:{userMsgId}` (TTL `llm.timeout-seconds`, default 10s) plus a shadow hash
+  `llm:timeout:{userMsgId}` (TTL `llm.timeout-seconds`, default 8s — tuned to land ~1s after the
+  poison→DLQ event at ~7s) plus a shadow hash
   `llm:timeout:shadow:{userMsgId}` = `{cid, content}` (survives the timeout key's expiry). The responder
   **deletes both** on successful completion. If the timeout key **expires** first (poison, or a crash
   that never recovers), Redis fires a keyspace `expired` event; `KeyspaceNotificationListener` reads the
