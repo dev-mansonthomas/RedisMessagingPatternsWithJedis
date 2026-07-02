@@ -69,7 +69,7 @@ observability over hardening.
 | `/scheduled-messages` | Scheduled/Delayed Messages | Sorted Set + Hash + Stream | `scheduled.messages`, `reminders.v1` |
 | `/per-key-serialized` | Per-Key Serialized | Stream + `SET NX` lock per key | `jobs.perkey.v1`, `running:order:{id}` |
 | `/token-bucket` | Token Bucket (concurrency cap) | Stream + Lua counter | `token-bucket.jobs.v1` |
-| `/llm-chat` | LLM Chat (Streams) | Stream + **3 groups** (`cg:responder`/`cg:moderation`/`cg:analytics`, fan-out) + per-conv token stream; RedisTimeSeries analytics; **`XAUTOCLAIM` recovery sweeper + DLQ** (kill-worker/`/fail` poison demos); **reply timeout via keyspace notifications** (ADR-0010) | `chat:{cid}` (cid=`companyId:userId`), `chat:{cid}:tok`, `chat:{cid}:flags`, `chat:{cid}:stats`, `ts:{cid}:userTokens`, `chat:{cid}:dlq`, `llm:timeout:{msgId}`(+`:shadow`) |
+| `/llm-chat` | LLM Chat (Streams) | Stream + **3 groups** (`cg:responder`/`cg:moderation`/`cg:analytics`, fan-out) + per-conv token stream; RedisTimeSeries analytics; **`XAUTOCLAIM` recovery sweeper + DLQ** (kill-worker/`/fail` poison demos); **reply timeout via keyspace notifications** (ADR-0010); **conversation persists across page reload** (frontend keeps the cid in `localStorage` → `chat:{cid}` is the source of truth) | `chat:{cid}` (cid=`companyId:userId`), `chat:{cid}:tok`, `chat:{cid}:flags`, `chat:{cid}:stats`, `ts:{cid}:userTokens`, `chat:{cid}:dlq`, `llm:timeout:{msgId}`(+`:shadow`) |
 
 Full contracts: `docs/specs/<pattern>.md`. System design: `docs/architecture/overview.md`.
 Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
@@ -83,6 +83,10 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
 - **Live UI updates** come from `RedisStreamListenerService` (one Virtual Thread per monitored
   stream, `XREAD BLOCK 1000`) broadcasting `DLQEvent`/`PubSubEvent` over WebSocket.
 - **Several services clear their demo streams on startup** (`@Order`-sequenced runners) for a clean slate.
+- **LLM Chat data is durable & reset-only:** unlike the other demo streams, LLM Chat does *not*
+  clear on startup. `LlmChatService.reset(cid)` is the **only** deleter — a surgical `DEL` of
+  `chat:{cid}` + `:tok`/`:flags`/`:stats`/`:dlq` + `ts:{cid}:userTokens` (no `flushall`). The
+  frontend persists the cid in `localStorage` (`redis-llm-chat-cid`) so a reload restores the chat.
 - **No auth** (by design — ADR-0008). **CORS and WebSocket origins are restricted to an explicit
   allow-list** (`CorsConfig` / `WebSocketConfig`, driven by `app.cors.allowed-origins`, default the
   local frontend/backend). Still not deployment-ready (no auth/TLS) — see ADR-0008 / TODO.
