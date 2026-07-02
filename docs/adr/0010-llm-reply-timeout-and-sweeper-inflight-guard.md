@@ -13,14 +13,14 @@ Two problems surfaced while hardening the LLM Chat demo (#12):
    recovers, or a "poison" message that fails every attempt and lands in the DLQ). Polling for "did a
    reply arrive?" is wasteful and the DLQ is an ops-facing view, not a user-facing one.
 2. **The recovery sweeper double-produced on slow replies.** `LlmRecoverySweeper` reclaims *stale
-   pending* entries via `XAUTOCLAIM` after `min-idle-ms` (2s). But a legitimately **slow** generation
-   (e.g. the long-text demo, ~5–6s) stays `PENDING` — un-ACKed — well past `min-idle-ms`, so the
+   pending* entries via `XAUTOCLAIM` after `min-idle-ms` (3.25s). But a legitimately **slow** generation
+   (e.g. the long-text demo, ~6.8s) stays `PENDING` — un-ACKed — well past `min-idle-ms`, so the
    sweeper reclaimed a still-healthy message and generated a **second** reply.
 
 ## Decision
 
 1. **Reply timeout with Redis keyspace notifications** (reuse the Request/Reply mechanism, ADR-0007).
-   On send, set a key `llm:timeout:{msgId}` with a TTL (`llm.timeout-seconds`, default 10s) and a shadow
+   On send, set a key `llm:timeout:{msgId}` with a TTL (`llm.timeout-seconds`, default 8s) and a shadow
    hash `llm:timeout:shadow:{msgId}` = `{cid, content}` that outlives the timeout key. The responder
    **deletes both** when the reply completes. If the timeout key **expires** first, Redis publishes a
    keyspace `expired` event (`notify-keyspace-events Ex`); the shared `KeyspaceNotificationListener`
@@ -45,8 +45,12 @@ Two problems surfaced while hardening the LLM Chat demo (#12):
 
 ## Consequences
 
-- Users get a prompt, push-based failure notice; the DLQ remains the ops view. Both can appear for the
-  same poison message (DLQ at ~5s, timeout notice at ~10s).
+- Users get a prompt, push-based failure notice; the DLQ remains the ops view. Both appear for the
+  same poison message in quick succession: `min-idle-ms` (3.25s) with a 500ms `sweep-interval-ms`
+  paces the two reclaim cycles to ~3.5s and ~7.0s, so the DLQ lands at ~7s (three deliveries), and
+  `timeout-seconds` (8s) is set just above it so the timeout notice lands ~1s later — both comfortably
+  above the worst-case legitimate generation (the ~6.8s long-text demo), so a healthy reply never
+  trips a false timeout.
 - The in-flight set is in-memory, so it only guards a *live* JVM — exactly the intent (a truly dead JVM
   loses the set and its messages are reclaimed, which is the recovery path).
 - Two more keys per message (`llm:timeout:*`), both short-lived / shadow-TTL'd. Deleted on success.
