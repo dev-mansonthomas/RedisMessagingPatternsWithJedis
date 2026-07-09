@@ -43,7 +43,7 @@ public class DLQEvent {
     /**
      * Number of times this message has been delivered
      */
-    private Integer deliveryCount;
+    private Long deliveryCount; // int64 like Redis' PEL counter — Long.MAX_VALUE = XNACK FATAL poison
 
     /**
      * Consumer that processed this message
@@ -85,6 +85,11 @@ public class DLQEvent {
          * Message exceeded delivery threshold and was routed to DLQ
          */
         MESSAGE_TO_DLQ,
+
+        /**
+         * Message was explicitly released via XNACK (Redis 8.8+) — details carry the mode
+         */
+        MESSAGE_NACKED,
 
         /**
          * New message was produced to a stream

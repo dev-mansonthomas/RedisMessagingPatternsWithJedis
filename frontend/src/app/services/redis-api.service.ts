@@ -5,6 +5,10 @@ import { Observable } from 'rxjs';
 export interface StreamEntry {
   id: string;
   fields: Record<string, string>;
+  // Present on /pending-messages entries only (PEL info)
+  deliveryCount?: number;
+  consumer?: string;
+  idleMs?: number;
 }
 
 export interface StreamStats {

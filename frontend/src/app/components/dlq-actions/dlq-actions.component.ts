@@ -33,7 +33,7 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
         <button
           class="action-button success"
           [disabled]="isProcessing()"
-          (click)="processWithSuccess()">
+          (click)="process('ACK')">
           <span class="button-icon">✓</span>
           <span class="button-text">Process & Success</span>
         </button>
@@ -41,9 +41,37 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
         <button
           class="action-button fail"
           [disabled]="isProcessing()"
-          (click)="processWithFail()">
+          title="Simulated crash: no ACK — stays owned, retried only after minIdle; failure budget consumed"
+          (click)="process('NO_ACK')">
           <span class="button-icon">✗</span>
-          <span class="button-text">Process & Fail</span>
+          <span class="button-text">Process & Fail (timeout)</span>
+        </button>
+
+        <button
+          class="action-button explicit"
+          [disabled]="isProcessing()"
+          title="XNACK FAIL: released immediately (no minIdle wait); failure budget consumed"
+          (click)="process('NACK_FAIL')">
+          <span class="button-icon">⚡</span>
+          <span class="button-text">Process & Explicit Fail</span>
+        </button>
+
+        <button
+          class="action-button poison"
+          [disabled]="isProcessing()"
+          title="XNACK FATAL: delivery counter forced to max — swept to the DLQ by the next poll, immediately"
+          (click)="process('NACK_FATAL')">
+          <span class="button-icon">☠️</span>
+          <span class="button-text">Process & Poison</span>
+        </button>
+
+        <button
+          class="action-button silent"
+          [disabled]="isProcessing()"
+          title="XNACK SILENT: returned untouched (e.g. graceful shutdown) — counter reset to 0, failure budget refunded"
+          (click)="process('NACK_SILENT')">
+          <span class="button-icon">↩️</span>
+          <span class="button-text">Process & Release (silent)</span>
         </button>
 
         <div class="separator"></div>
@@ -140,6 +168,33 @@ import { StreamRefreshService } from '../../services/stream-refresh.service';
 
     .action-button.fail:hover:not(:disabled) {
       background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+    }
+
+    .action-button.explicit {
+      background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+      color: white;
+    }
+
+    .action-button.explicit:hover:not(:disabled) {
+      background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%);
+    }
+
+    .action-button.poison {
+      background: linear-gradient(135deg, #7f1d1d 0%, #450a0a 100%);
+      color: white;
+    }
+
+    .action-button.poison:hover:not(:disabled) {
+      background: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
+    }
+
+    .action-button.silent {
+      background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+      color: white;
+    }
+
+    .action-button.silent:hover:not(:disabled) {
+      background: linear-gradient(135deg, #475569 0%, #334155 100%);
     }
 
     .action-button.generate {
@@ -332,20 +387,13 @@ export class DlqActionsComponent {
     });
   }
 
-  processWithSuccess(): void {
-    this.processMessage(true);
-  }
-
-  processWithFail(): void {
-    this.processMessage(false);
-  }
-
-  private processMessage(shouldSucceed: boolean): void {
+  /** outcome: ACK | NO_ACK | NACK_FAIL | NACK_FATAL | NACK_SILENT (see ProcessOutcome, backend). */
+  process(outcome: string): void {
     this.isProcessing.set(true);
     this.statusMessage.set('Processing...');
     this.isError.set(false);
 
-    this.http.post<any>(`${this.apiUrl}/process`, { shouldSucceed }).subscribe({
+    this.http.post<any>(`${this.apiUrl}/process`, { outcome }).subscribe({
       next: (response) => {
         if (response.success) {
           this.statusMessage.set(response.message || 'Message processed successfully');
