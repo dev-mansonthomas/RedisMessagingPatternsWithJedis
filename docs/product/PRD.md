@@ -21,7 +21,7 @@ Reading docs is abstract; this project makes each pattern **interactive and obse
 1. Implement a representative catalogue of messaging patterns on Redis (11 today).
 2. Visualize each pattern's data flow **in real time** (streams filling/draining, routing decisions).
 3. Keep each pattern **self-contained and inspectable** — one page, named Redis keys, a flow diagram.
-4. Run with one command (`./launch-docker.sh`) against Redis 8.4+.
+4. Run with one command (`./launch-docker.sh`) against Redis 8.8+.
 
 ## Non-goals
 

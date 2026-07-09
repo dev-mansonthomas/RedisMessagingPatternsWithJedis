@@ -15,7 +15,7 @@
   7. release_lock - Per-Key Serialized: compare-and-delete a lock (owner-checked)
 
   Author: Redis Patterns Team
-  Redis Version: 8.4.0+
+  Redis Version: 8.8.0+ (demo baseline, for XNACK; read_claim_or_dlq itself needs 8.4.0+)
 ]]
 
 -- ============================================================================
@@ -47,7 +47,7 @@
 --   [1] messages_to_process - Array of [id, fields] for messages to process
 --   [2] dlq_ids - Array of [original_id, dlq_id] for messages routed to DLQ
 --
--- TIMING NOTE (verified empirically against Redis 8.4):
+-- TIMING NOTE (verified empirically against Redis 8.4 and 8.8):
 --   The DLQ check (step 1) runs BEFORE the re-read (step 3), so it only sees
 --   delivery counts from PREVIOUS calls. A poison message is therefore
 --   delivered maxDeliver times, then swept to the DLQ by the NEXT call:

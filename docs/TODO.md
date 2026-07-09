@@ -22,9 +22,13 @@
 
 ## Correctness / build
 
+- 🟡 **XNACK via raw `Jedis.sendCommand`** (`DLQMessagingService.XnackCommand`) — no typed API in
+  any stable Jedis (only 8.0.0-beta1, which also lacks `RETRYCOUNT`/`FORCE`). → Adopt
+  `jedis.xnack(...)` when Jedis 8 goes GA (added 2026-07-09, ADR-0011).
 - 🟠 **No automated tests exist** — `src/test` is absent and there are no `*.spec.ts`. The "Running
   Tests" section of `augmentcode/startup_instructions.md` is aspirational. → Add at least smoke tests
-  per pattern service and a few component specs.
+  per pattern service and a few component specs. *(Partially outdated: backend now has 55 tests —
+  LLM Chat + DLQ/XNACK; frontend still has none.)*
 - 🟠 **Frontend lint: 76 errors** (`npm run lint`). Dominant categories: `@angular-eslint/template/
   label-has-associated-control`, `click-events-have-key-events` / `interactive-supports-focus`
   (a11y), `@typescript-eslint/no-explicit-any`, `@angular-eslint/no-empty-lifecycle-method`.
@@ -41,7 +45,7 @@
 | Maven | 3.9 (Dockerfile `maven:3.9`) | 3.9.16 | ✅ installed |
 | Node | 22 (frontend Dockerfile `node:22-alpine`) | 24.16.0 | 🟡 runtime VM is 24; build image still `node:22-alpine` (builds fine; not pinned) |
 | luacheck | dev-only Lua lint (`.luarc.json`) | 1.2.0 (Lua 5.1) | ✅ installed |
-| redis-cli | client for `lua/load.sh` | 7.0.15 | ✅ ok as client; local *server* must be 8.4+ (use Docker) |
+| redis-cli | client for `lua/load.sh` | 7.0.15 | ✅ ok as client; local *server* must be 8.8+ (use Docker) |
 | Docker / Compose | modern (`docker compose`, no v1 `docker-compose`) | 29.5.2 / v5.1.4 | ✅ |
 | npm / git | bundled / any | 11.13.0 / 2.43.0 | ✅ |
 

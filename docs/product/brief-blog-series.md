@@ -25,7 +25,7 @@ repo — jamais de code dupliqué qui divergerait du projet.
 - Un dossier par post : `blog/<slug>/` avec `<slug>.md` (ou `index.md`) + `img/` pour les schémas.
 - Par post : **1 schéma logique** (image statique exportée, style Excalidraw/brand Redis),
   **pseudo-code** de la logique, **courts extraits réels (5–15 lignes) + permaliens GitHub pinnés
-  sur un tag**, ~**1200–1500 mots**.
+  sur un tag**, ~**1500–1800 mots** (révisé : section XNACK ajoutée).
 - **Reproduction CLI-first** : le lecteur charge `lua/stream_utils.lua` (`FUNCTION LOAD`) et rejoue
   le pattern via `redis-cli`/RedisInsight ; la démo web n'est que l'illustration visuelle.
 - Section multi-langage « appeler la fonction Lua » : **Java (Jedis, code du repo) + Python +
@@ -56,7 +56,7 @@ repo — jamais de code dupliqué qui divergerait du projet.
   contraintes CMS exactes encore inconnues.
 - **Permaliens pinnés** → il faut créer un **tag git** (aucun n'existe aujourd'hui) ; le push du tag
   se fait côté host par l'auteur.
-- **Redis 8.4+** requis pour `read_claim_or_dlq` (`XREADGROUP … CLAIM`) — caveat lecteur obligatoire.
+- **Redis 8.8+** requis (baseline projet depuis XNACK, ADR-0011) pour `read_claim_or_dlq` (`XREADGROUP … CLAIM`) — caveat lecteur obligatoire.
 - Les snippets Python/Node/Go/C# doivent être vérifiés contre les API clientes actuelles
   (Context7), pas de mémoire d'entraînement.
 
@@ -82,7 +82,7 @@ Le **post DLQ complet en anglais** dans `blog/dlq-redis-streams/` :
 3. Rédaction : intro série (1 §) → le problème (poison message) → le pattern → pseudo-code →
    encart Redis Functions → reproduction `redis-cli`/RedisInsight → section FCALL 5 langages →
    lien démo + repo.
-4. Vérification : rejouer soi-même chaque commande de la section reproduction contre Redis 8.4.
+4. Vérification : rejouer soi-même chaque commande de la section reproduction contre Redis 8.8.
 
 ## Next step
 

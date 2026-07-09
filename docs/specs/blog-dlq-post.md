@@ -18,7 +18,7 @@ long code. Ancillary demo tech (WebSocket, Angular, Spring internals) must not a
 
 ```
 blog/dlq-redis-streams/
-├── index.md                  # the post (English, 1200–1500 words of prose)
+├── index.md                  # the post (English, 1500–1800 words of prose)
 ├── img/
 │   ├── dlq-flow.png          # exported logical diagram (referenced by index.md, alt text required)
 │   └── dlq-flow.excalidraw   # editable source of the diagram
@@ -48,24 +48,28 @@ and updates to `CLAUDE.md` / `docs/TODO.md` if the audit changes anything.
 
 Testable criteria:
 
-- [ ] Given a fresh `redis:8.4-alpine` container, when `samples/setup.sh` runs, then
+- [ ] Given a fresh `redis:8.8-alpine` container, when `samples/setup.sh` runs, then
       `FUNCTION LIST LIBRARYNAME stream_utils` shows the library and
       `XINFO GROUPS test-stream` shows the demo group — script exits 0, idempotent on re-run.
 - [ ] Given the fresh container + `setup.sh`, when every `redis-cli` block of `index.md` is executed
       **in document order, verbatim**, then each block's described outcome is observed; in
       particular the deliberately-failed message ends up in `test-stream:dlq` (and is `XACK`ed away
       from `test-stream` PENDING) after `maxDeliver` delivery attempts + `minIdle` idle time.
+- [ ] The XNACK section's `redis-cli` blocks, replayed in order on the same container, show:
+      `FAIL` → re-claimable immediately with deliveries kept; `FATAL` → swept to the DLQ by the
+      very next `FCALL` with no idle wait; `SILENT` → deliveries reset to 0. (Semantics verified
+      2026-07-09 and encoded in ADR-0011 + `DLQXnackIntegrationTest`.)
 - [ ] Each of the 6 samples runs against that container with the exact one-liner documented in
       `index.md`/sample README (`mvn -q exec:java`, `uv run`, `node`, `go run .`, `dotnet run`,
       `cargo run`), exits 0, and prints (a) messages to process and (b) `[original_id, dlq_id]`
       pairs when a DLQ routing occurs.
-- [ ] Prose word count of `index.md` (fenced code blocks and URLs excluded) is **1200–1500**.
+- [ ] Prose word count of `index.md` (fenced code blocks and URLs excluded) is **1500–1800**.
 - [ ] Every GitHub link in `index.md` matches
       `https://github.com/dev-mansonthomas/RedisMessagingPatternsWithJedis/(blob|tree)/blog-dlq-v1/...`
       and every linked path exists in the working tree (tag is pushed later by the author).
 - [ ] `index.md` contains: the 1-paragraph series intro, the logical diagram (relative `img/` path,
       alt text), a pseudo-code block, the Redis Functions explainer, the CLI reproduction, the
-      6-language section (links, not inline dumps), the Redis **8.4+** requirement stated before
+      6-language section (links, not inline dumps), the Redis **8.8+** requirement stated before
       the first command, and exactly **one** short inline real-code excerpt (5–15 lines, the Jedis
       `fcall` call from `DLQMessagingService`, followed by its pinned permalink).
 - [ ] `grep -iE 'websocket|sockjs|angular|spring' blog/dlq-redis-streams/index.md` → no hits in
@@ -103,8 +107,8 @@ Internal steps (this is what the pseudo-code in the post must mirror, 1:1):
 |---|---|
 | Main stream | `test-stream` |
 | DLQ stream | `test-stream:dlq` |
-| Consumer group | the name the backend actually uses — **fixed by the audit** (spec `docs/specs/dlq.md` says `test-group`/`mygroup` is unresolved) |
-| Consumer | `consumer-1` (idem, confirm via audit) |
+| Consumer group | `test-group` — **resolved 2026-07-09**: `DLQConfigService.DEFAULT_CONFIG` is the effective source; `mygroup`/`mystream`/`worker` are dead builder defaults (`DLQProperties`/`DLQParameters`) |
+| Consumer | `consumer-1` (resolved, same source) |
 | Defaults | `minIdle=100` ms, `count=100`, `maxDeliver=2` (from `DLQConfigService`) |
 
 ### Samples contract (all 6 identical in behavior)
@@ -112,7 +116,7 @@ Internal steps (this is what the pseudo-code in the post must mirror, 1:1):
 stdin/args: none (constants matching the table above; connection `redis://localhost:6379`,
 overridable via `REDIS_URL` env var). Behavior: connect → `FCALL` once → pretty-print the two
 result arrays → exit 0. No retry loops, no framework, ≤ ~60 lines each, top-of-file comment
-linking the blog post and stating the Redis 8.4+ / `setup.sh` prerequisite.
+linking the blog post and stating the Redis 8.8+ / `setup.sh` prerequisite.
 
 ### index.md section plan (order is normative)
 
@@ -124,12 +128,16 @@ linking the blog post and stating the Redis 8.4+ / `setup.sh` prerequisite.
 5. Sidebar — Redis Functions: why vs `EVAL`/`EVALSHA`/`SCRIPT LOAD` (named API, server-persisted
    & replicated library, loaded once, no SHA bookkeeping), how to load:
    `redis-cli -x FUNCTION LOAD REPLACE < lua/stream_utils.lua`
-6. Reproduce it in 5 minutes — `redis-cli`/RedisInsight walkthrough: docker run redis:8.4 →
+6. Reproduce it in 5 minutes — `redis-cli`/RedisInsight walkthrough: docker run redis:8.8 →
    setup.sh (or its commands spelled out) → `XADD` a good + a poison message → `FCALL` →
    don't-ACK to simulate failure → wait `minIdle` → `FCALL` again (×`maxDeliver`) → show
    `XRANGE test-stream:dlq` + `XPENDING` now clean
-7. Call it from your language — 6 links (pinned permalinks) + the single Jedis inline excerpt
-8. See it live & what's next — repo, `./launch-docker.sh --build`, the `/dlq` page, series teaser
+7. Explicit failure with XNACK (Redis 8.8) — the timeout walkthrough's counterpart: `FAIL`
+   (released immediately, budget kept), `FATAL` (counter → max, swept to the DLQ by the very next
+   `FCALL`, no idle wait), `SILENT` (budget refunded — graceful shutdown story); one short CLI
+   block, released state shown via `XPENDING` (unowned, `idle = -1`). Facts per ADR-0011.
+8. Call it from your language — 6 links (pinned permalinks) + the single Jedis inline excerpt
+9. See it live & what's next — repo, `./launch-docker.sh --build`, the `/dlq` page, series teaser
 
 ## Behavior & edge cases
 
@@ -139,7 +147,7 @@ The post/reproduction must get these right (they are where readers get confused)
   messages already read at least once, idle ≥ `minIdle`, with `deliveries >= maxDeliver` are moved.
   The walkthrough must therefore show at least one failed `FCALL`-then-no-`XACK` cycle per
   delivery increment.
-- **Confirmed empirically (2026-07-09, `redis:8.4-alpine`)**: `XREADGROUP ... CLAIM` increments the
+- **Confirmed empirically (2026-07-09, `redis:8.8-alpine`)**: `XREADGROUP ... CLAIM` increments the
   delivery counter, and the DLQ check reads `XPENDING` *before* the re-read. With `maxDeliver=2`:
   FCALL #1 delivers (deliveries=1), FCALL #2 re-delivers (deliveries=2), FCALL #3 sweeps to the
   DLQ and delivers nothing. **Normative for the post**: present it as "the message is delivered
@@ -154,8 +162,11 @@ The post/reproduction must get these right (they are where readers get confused)
 - **Idempotent setup**: `XGROUP CREATE` on an existing group → `BUSYGROUP`; `setup.sh` must
   tolerate it (`|| true` with a comment, or pre-check). `FUNCTION LOAD REPLACE` (not bare `LOAD`)
   so reruns work.
-- **Redis < 8.4**: `XREADGROUP ... CLAIM` fails → the post states the requirement up front and the
-  walkthrough pins `redis:8.4-alpine`.
+- **Redis < 8.8**: `XNACK` fails (and `XREADGROUP ... CLAIM` needs 8.4+) → the post states the
+  8.8+ requirement up front and the walkthrough pins `redis:8.8-alpine`.
+- **XNACK exception to the sweep timing**: released messages bypass the `minIdle` wait — the post's
+  timeout narrative ("each call ≥ minIdle apart") applies to the implicit-failure path only; the
+  XNACK section must call this contrast out explicitly (it is the point of the section).
 - **Permalinks 404 until the tag is pushed**: acceptance checks path-existence locally; the author
   pushes `blog-dlq-v1` from the host at publication (never from the VM).
 
@@ -180,7 +191,7 @@ not the other way around, unless the author decides otherwise.
 
 ## Test plan
 
-Environment: `docker run -d --name blog-dlq-redis -p 6379:6379 redis:8.4-alpine` (fresh; flush
+Environment: `docker run -d --name blog-dlq-redis -p 6379:6379 redis:8.8-alpine` (fresh; flush
 between scenarios). Toolchains: JDK21+Maven, Node 24, uv (present) + Go, .NET SDK, Rust
 (provisioned in the VM — **requires a session restart before implementation**; if any is missing,
 stop and tell the author, per global standards).
@@ -192,7 +203,7 @@ stop and tell the author, per global standards).
 3. Run all 6 samples with their documented one-liners against a state where one DLQ routing is
    pending → each exits 0 and prints ≥1 message-to-process and/or the `[orig_id, dlq_id]` pair;
    also run against an empty stream → graceful empty output.
-4. Word count: `sed`-strip fenced blocks from `index.md` → `wc -w` within 1200–1500.
+4. Word count: `sed`-strip fenced blocks from `index.md` → `wc -w` within 1500–1800.
 5. Link check: every `github.com/...` URL contains `/blog-dlq-v1/`; every repo path referenced
    exists locally (`git ls-files` match).
 6. Forbidden-tech grep (see acceptance) + `luacheck` unchanged + `mvn test` still green (proves the

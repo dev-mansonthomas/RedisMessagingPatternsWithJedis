@@ -18,6 +18,8 @@ startup (`RedisLuaFunctionLoader`, `FUNCTION LOAD REPLACE`). Functions: `read_cl
 ## Consequences
 
 - Atomicity and fewer round-trips; logic lives next to the data.
-- `read_claim_or_dlq` depends on the Redis **8.4+** `XREADGROUP ... CLAIM` option.
+- `read_claim_or_dlq` depends on the Redis **8.4+** `XREADGROUP ... CLAIM` option; the demo
+  baseline is **Redis 8.8+** since XNACK (ADR-0011). XNACK itself is deliberately NOT wrapped in
+  Lua — a single O(1) command has no atomicity need (ADR-0011).
 - Lua is a second language to maintain; changes require reloading the library (handled on restart).
 - Verify with `FUNCTION LIST` if behavior looks stale.

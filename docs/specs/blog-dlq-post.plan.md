@@ -20,16 +20,21 @@
 All clients: a Lua `nil`/`false` return becomes RESP Nil — guard before indexing; empty Lua tables
 arrive as empty arrays (safe).
 
-## Empirical ground truth (already proven, 2026-07-09, redis:8.4-alpine)
+## Empirical ground truth (already proven, 2026-07-09, redis:8.8-alpine)
 
 `maxDeliver=2`: FCALL #1 delivers (deliveries=1) → FCALL #2 re-delivers via `CLAIM` (deliveries=2)
 → FCALL #3 sweeps to DLQ, delivers nothing, returns `[orig_id, dlq_id]`, PEL clean. Calls must be
 ≥ `minIdle` apart. This wording is **normative** for the post (spec, Behavior section).
 
+**XNACK (Redis 8.8, landed in the demo — ADR-0011 + `DLQXnackIntegrationTest`)**: released
+messages are unowned (`idle=-1`) and bypass `minIdle`; counter SILENT→0 / FAIL→kept /
+FATAL→Long.MAX (next FCALL sweeps instantly). The post gains section 7 on this (spec §plan);
+task 3's walkthrough markers also wrap the XNACK demo block.
+
 ## The test harness (how everything is verified)
 
 One command: `./blog/dlq-redis-streams/verify.sh`
-— spins its own throwaway `redis:8.4-alpine` (container `blog-dlq-verify`, port **6399**), runs
+— spins its own throwaway `redis:8.8-alpine` (container `blog-dlq-verify`, port **6399**), runs
 every check below, prints PASS/FAIL per check, exits non-zero on any FAIL, always removes the
 container. Checks map 1:1 to the spec's acceptance boxes:
 
@@ -39,7 +44,7 @@ container. Checks map 1:1 to the spec's acceptance boxes:
 | `chk_setup` | `setup.sh` twice → exit 0 both; `FUNCTION LIST LIBRARYNAME stream_utils` non-empty; `XINFO GROUPS test-stream` shows the group |
 | `chk_walkthrough` | extracts fenced ` ```bash ` blocks from `index.md` between `<!-- verify:begin -->`/`<!-- verify:end -->` markers, runs them in order, then asserts: `XLEN test-stream:dlq` == 1, `XPENDING test-stream <group>` empty |
 | `chk_sample_<lang>` ×6 | documented one-liner exits 0; stdout contains a `[orig_id → dlq_id]` line when a sweep is pending; graceful `no messages` on empty state |
-| `chk_wordcount` | prose of `index.md` (fenced blocks stripped) in **1200–1500** words |
+| `chk_wordcount` | prose of `index.md` (fenced blocks stripped) in **1500–1800** words |
 | `chk_links` | every `github.com/...RedisMessagingPatternsWithJedis` URL contains `/blog-dlq-v1/`; every referenced repo path exists in `git ls-files` |
 | `chk_forbidden` | no `websocket|sockjs|angular|spring` in prose (closing "see it live" section exempt via marker) |
 | `chk_img` | `img/dlq-flow.png` exists, referenced with relative path + non-empty alt text |
@@ -110,8 +115,8 @@ plan: series intro ¶ → problem → pattern+diagram (guarantees for architects
 (mirrors the 4 Lua steps 1:1) → Redis Functions sidebar (why vs EVAL/EVALSHA/SCRIPT LOAD; the
 `FUNCTION LOAD REPLACE` one-liner) → §7 language links (6 pinned permalinks + ONE inline Jedis
 excerpt 5–15 lines from `DLQMessagingService` + its permalink) → §8 see-it-live. Sweep semantics
-phrased exactly as the spec's normative wording. Redis 8.4+ caveat before the first command.
-Refactor pass: cut to 1200–1500 words, tighten.
+phrased exactly as the spec's normative wording. Redis 8.8+ caveat before the first command.
+Refactor pass: cut to 1500–1800 words, tighten.
 Files: modify `blog/dlq-redis-streams/index.md`.
 
 **Task 10 — full gate + ship**

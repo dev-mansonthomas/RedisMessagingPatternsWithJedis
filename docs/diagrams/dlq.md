@@ -79,6 +79,30 @@ sequenceDiagram
 - **Automatic Retry**: Failed messages automatically re-delivered
 - **Delivery Counter**: Redis tracks how many times a message was delivered
 - **Max Deliveries**: after `maxDeliveries` failed deliveries, the **next** poll sweeps the message to the DLQ — `maxDeliveries`+1 calls in total, each ≥ `minIdleMs` apart (the DLQ check reads `XPENDING` *before* re-reading, so it only sees counts from previous calls)
+- **Explicit failure (`XNACK`, Redis 8.8+)**: bypasses the `minIdleMs` wait — the released message is unowned (`idle = -1`) and immediately re-claimable. `FAIL` keeps the counter, `FATAL` forces it to max (next poll sweeps to DLQ instantly), `SILENT` resets it to 0 (failure budget refunded). See ADR-0011.
+
+## Explicit failure lane (XNACK)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant R as Redis Stream
+    participant LUA as Lua Function
+    participant W as Worker
+    participant DLQ as Dead Letter Queue
+
+    W->>LUA: FCALL read_claim_or_dlq
+    LUA-->>W: Message (delivery_count: 1)
+    Note over W: ❌ Poison detected
+    W->>R: XNACK FATAL IDS 1 id
+    Note over R: PEL entry unowned (idle = -1)<br/>delivery_count = MAX
+
+    W->>LUA: FCALL read_claim_or_dlq (immediately)
+    LUA->>R: XPENDING — no minIdle wait needed
+    LUA->>DLQ: XCLAIM + XADD copy
+    LUA->>R: XACK
+    LUA-->>W: no message + DLQ ids [original, dlq]
+```
 - **Atomic Operation**: Lua function ensures claim+read is atomic
 - **Inspection**: DLQ messages can be inspected and manually reprocessed
 

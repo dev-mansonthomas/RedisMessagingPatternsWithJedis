@@ -22,7 +22,7 @@
 └───────────────────────────────────────┬────────────────────────────────────────────┘
                                          │ Jedis (RESP)
 ┌────────────────────────────────────────▼───────────────────────────────────────────┐
-│  Redis 8.4-alpine (AOF on)                                                           │
+│  Redis 8.8-alpine (AOF on)                                                           │
 │  Streams + Consumer Groups · Pub/Sub channels · Sorted Sets · Hashes · String locks  │
 │  Functions library `stream_utils`: read_claim_or_dlq · request · response · route_message  │
 │                                    · acquire_token · release_token · release_lock          │
