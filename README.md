@@ -274,7 +274,7 @@ Detailed contracts (Redis keys, endpoints, edge cases) live in [`docs/specs/`](d
 
 **Use case**: E-commerce order processing where some orders fail validation.
 
-**Key concepts**: Consumer Groups track delivery count; after N failed attempts messages go to a `:dlq` stream; failed messages can be inspected and reprocessed. (Lua `read_claim_or_dlq`.)
+**Key concepts**: Consumer Groups track delivery count; after `maxDeliveries` failed deliveries the **next** poll sweeps the message to a `:dlq` stream; failed messages can be inspected and reprocessed. (Lua `read_claim_or_dlq`.)
 
 ### 2. 📢 Publish/Subscribe (Pub/Sub) — `/pubsub`
 

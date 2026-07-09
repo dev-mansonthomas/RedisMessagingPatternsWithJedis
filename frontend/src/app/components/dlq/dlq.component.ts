@@ -98,8 +98,8 @@ import { DiagramDefinitionsService } from '../../services/diagram-definitions.se
               <div class="code-line"><span class="keyword">function</span> <span class="error"> processFail</span>()  <span class="comment">// Java</span>:</div>
               <div class="code-line indent1">msg = <span class="function">getNextMessages</span>()</div>
               <div class="code-line indent1"><span class="comment">// ❌ No ACK → stays in PENDING</span></div>
-              <div class="code-line indent1"><span class="comment">// → will retry until max deliveries</span></div>
-              <div class="code-line indent1"><span class="comment">// → then added to DLQ + removed from UI</span></div>
+              <div class="code-line indent1"><span class="comment">// → redelivered until deliveries == maxDeliveries</span></div>
+              <div class="code-line indent1"><span class="comment">// → NEXT poll sweeps it to DLQ + removes it from UI</span></div>
             </div>
           </div>
         </div>

@@ -13,7 +13,7 @@ flowchart TB
         DLQ[("⚠️ jobs.workqueue.v1:dlq<br/>Dead Letter Queue")]
         LUA["📜 Lua<br/>read_claim_or_dlq"]
         LUA -->|XREADGROUP<br/>job-queue-group| JS
-        LUA -->|"XADD<br/>(if redelivery > 2)"| DLQ
+        LUA -->|"XADD<br/>(if deliveries ≥ maxDeliveries)"| DLQ
     end
 
     subgraph Workers["⚙️ Workers"]

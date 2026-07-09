@@ -26,7 +26,7 @@
 -- XREADGROUP CLAIM option to atomically claim and read messages.
 --
 -- The function performs the following steps:
--- 1. Check pending messages (XPENDING) and identify messages that exceeded max delivery count
+-- 1. Check pending messages (XPENDING) and identify messages that reached max delivery count (deliveries >= maxDeliver)
 -- 2. Route messages to DLQ (XCLAIM + XADD + XACK)
 -- 3. Use XREADGROUP with CLAIM to get pending + new messages in a single atomic operation
 -- 4. Return messages to process and DLQ message IDs
@@ -46,6 +46,13 @@
 --   A table with two elements:
 --   [1] messages_to_process - Array of [id, fields] for messages to process
 --   [2] dlq_ids - Array of [original_id, dlq_id] for messages routed to DLQ
+--
+-- TIMING NOTE (verified empirically against Redis 8.4):
+--   The DLQ check (step 1) runs BEFORE the re-read (step 3), so it only sees
+--   delivery counts from PREVIOUS calls. A poison message is therefore
+--   delivered maxDeliver times, then swept to the DLQ by the NEXT call:
+--   maxDeliver+1 FCALLs in total, each spaced by at least minIdle ms.
+--   The XREADGROUP ... CLAIM re-delivery DOES increment the delivery counter.
 --
 -- DO NOT MODIFY - Used by DLQ feature
 -- ============================================================================
@@ -87,7 +94,7 @@ redis.register_function('read_claim_or_dlq', function(keys, args)
     local id = p[1]
     local deliveries = tonumber(p[4])
 
-    -- If message exceeded max delivery count, mark for DLQ
+    -- If message reached (>=) max delivery count, mark for DLQ
     if deliveries >= maxDeliver then
       to_dlq_ids[#to_dlq_ids + 1] = id
     end

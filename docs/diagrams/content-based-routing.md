@@ -46,7 +46,7 @@ flowchart TB
     LUA -->|XREADGROUP| STD
     LUA -->|XREADGROUP| PRM
     LUA -->|XREADGROUP| VIP
-    LUA -->|"XADD<br/>(if redelivery > 2)"| DLQ
+    LUA -->|"XADD<br/>(if deliveries ≥ maxDeliveries)"| DLQ
 
     style Top fill:transparent,stroke:transparent
     style Redis fill:#dc382d,color:#fff
@@ -89,14 +89,14 @@ sequenceDiagram
 
     W->>LUA: poll (retry 1)
     LUA->>STD: XREADGROUP + XCLAIM
-    Note over LUA: redelivery_count = 1
+    Note over LUA: deliveries = 2 (claimed again)
     STD-->>LUA: {amount: -100}
     LUA-->>W: message
     Note over W: Process fails again!
 
-    W->>LUA: poll (retry 2)
-    LUA->>STD: XREADGROUP + XCLAIM
-    Note over LUA: redelivery_count = 2 > max
+    W->>LUA: poll (sweep)
+    LUA->>STD: XPENDING → XCLAIM
+    Note over LUA: deliveries = 2 ≥ maxDeliveries<br/>sweep — not redelivered
     LUA->>DLQ: XADD (move to DLQ)
     LUA->>STD: XACK (remove from stream)
     Note over DLQ: Message in DLQ<br/>for manual review
