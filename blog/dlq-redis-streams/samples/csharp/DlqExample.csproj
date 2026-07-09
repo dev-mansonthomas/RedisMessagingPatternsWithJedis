@@ -1,0 +1,18 @@
+<!-- Minimal runner for the DLQ blog-post sample: dotnet run -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RootNamespace>DlqExample</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- NRedisStack brings StackExchange.Redis (db.Execute) in transitively -->
+    <PackageReference Include="NRedisStack" Version="0.13.1" />
+  </ItemGroup>
+
+</Project>

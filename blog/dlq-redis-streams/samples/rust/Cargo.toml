@@ -1,0 +1,13 @@
+# Minimal runner for the DLQ blog-post sample: cargo run
+[package]
+name = "dlq-fcall-example-rust"
+version = "1.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "dlq-example"
+path = "src/main.rs"
+
+[dependencies]
+redis = "0.32"

@@ -1,0 +1,7 @@
+# Minimal runner for the DLQ blog-post sample: uv run dlq_example.py
+[project]
+name = "dlq-fcall-example-python"
+version = "1.0.0"
+description = "Call the read_claim_or_dlq Redis Function once (DLQ pattern blog post)"
+requires-python = ">=3.10"
+dependencies = ["redis>=8"]

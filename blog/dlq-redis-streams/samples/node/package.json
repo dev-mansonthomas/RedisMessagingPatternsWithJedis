@@ -1,0 +1,10 @@
+{
+  "name": "dlq-fcall-example-node",
+  "version": "1.0.0",
+  "description": "Call the read_claim_or_dlq Redis Function once (DLQ pattern blog post)",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "redis": "^6.1.0"
+  }
+}
