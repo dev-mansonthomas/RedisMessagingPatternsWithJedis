@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * Base class for integration tests that need a real Redis instance.
  *
  * <p>Streams, consumer groups, {@code XPENDING} and {@code XINFO} semantics cannot be faithfully
- * mocked, so these tests run against a throwaway {@code redis:8.4-alpine} container (matching the
+ * mocked, so these tests run against a throwaway {@code redis:8.8-alpine} container (matching the
  * app's Redis version). The container is started once per test class and the keyspace is flushed
  * before each test for isolation.
  *
@@ -30,7 +30,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  */
 public abstract class AbstractRedisIntegrationTest {
 
-    private static final String IMAGE = "redis:8.4-alpine";
+    private static final String IMAGE = "redis:8.8-alpine";
 
     private static String containerId;
     protected static JedisPool jedisPool;

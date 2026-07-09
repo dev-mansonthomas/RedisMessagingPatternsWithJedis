@@ -11,10 +11,10 @@
 
 services:
   # ---------------------------------------------------------------------------
-  # Redis Server (8.4+ required for XREADGROUP CLAIM)
+  # Redis Server (8.8+ required for XNACK; 8.4+ for XREADGROUP CLAIM)
   # ---------------------------------------------------------------------------
   redis:
-    image: redis:8.4-alpine
+    image: redis:8.8-alpine
     container_name: redis-messaging-redis
     ports:
       - "6379:6379"
