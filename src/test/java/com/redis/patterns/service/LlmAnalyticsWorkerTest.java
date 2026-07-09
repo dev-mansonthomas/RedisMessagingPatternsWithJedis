@@ -67,7 +67,7 @@ class LlmAnalyticsWorkerTest extends AbstractRedisIntegrationTest {
         try (var jedis = jedisPool.getResource()) {
             Map<String, String> stats = jedis.hgetAll(LlmChatService.statsKey(cid));
             assertThat(stats).containsEntry("userMessages", "1").containsEntry("userTokens", "3");
-            // RedisTimeSeries received a sample (module is present in redis:8.4).
+            // RedisTimeSeries received a sample (module is present in redis:8.8).
             assertThat(jedis.exists(LlmChatService.tokensSeriesKey(cid))).isTrue();
         }
     }

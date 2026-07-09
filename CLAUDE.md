@@ -18,8 +18,8 @@ observability over hardening.
 |-----------|---------|-------|
 | Java | 21 | Virtual Threads used heavily |
 | Spring Boot | 3.5.7 | Web, WebSocket, Actuator, Validation |
-| Jedis | 7.1.0 | Direct `JedisPool`, no Spring Data Redis |
-| Redis | 8.4-alpine | **8.4+ required** for `XREADGROUP ... CLAIM` |
+| Jedis | 7.5.3 | Direct `JedisPool`, no Spring Data Redis; XNACK via raw `sendCommand` (no typed API in stable Jedis) |
+| Redis | 8.8-alpine | **8.8+ required** for `XNACK` (explicit NACK); `XREADGROUP ... CLAIM` itself needs 8.4+ |
 | Angular | 21 | Standalone components, lazy routes, Angular Material |
 | Realtime | SockJS + raw WebSocket | endpoint `/api/ws/dlq-events` |
 | Diagrams | mermaid 11 | per-pattern flow diagrams in the UI |
@@ -35,8 +35,8 @@ observability over hardening.
   required in this VM — a host-installed `node_modules` carries the wrong `esbuild` native binary (darwin vs linux).
 - **Lua lint:** `luacheck lua/ --globals redis cjson cmsgpack bit` (luacheck 1.2.0, Lua 5.1) →
   0 errors, 5 cosmetic warnings (long line / trailing whitespace).
-- **Backend tests:** `mvn test` — the LLM Chat pattern (#12) introduced the first backend tests
-  (`src/test/java/com/redis/patterns/`; 40 tests incl. fan-out + XAUTOCLAIM recovery/DLQ). Integration tests use a real Redis started via the **docker
+- **Backend tests:** `mvn test` — 55 tests: LLM Chat (#12, the first tests) + DLQ/XNACK
+  (`DLQXnackIntegrationTest`, `DLQProcessControllerTest`). Integration tests use a real Redis (8.8) started via the **docker
   CLI** (`support/AbstractRedisIntegrationTest`), not Testcontainers — the bundled docker-java
   negotiates Docker API v1.32, which this engine (min v1.40) rejects. Tests **skip** (not fail) when
   Docker is unavailable. No other pattern has tests yet.
@@ -58,7 +58,7 @@ observability over hardening.
 
 | Page route | Pattern | Redis structure | Key streams/keys |
 |------------|---------|-----------------|------------------|
-| `/dlq` | Dead Letter Queue | Streams + Consumer Groups + Lua | `test-stream`, `test-stream:dlq` |
+| `/dlq` | Dead Letter Queue | Streams + Consumer Groups + Lua; **XNACK explicit failure** (Redis 8.8): `FAIL` = immediate retry (budget kept), `FATAL` = poison → DLQ next poll (counter = Long.MAX), `SILENT` = budget refunded. `POST /process {outcome}` (legacy `{shouldSucceed}` still mapped) | `test-stream`, `test-stream:dlq` |
 | `/pubsub` | Publish/Subscribe (QoS0) | Pub/Sub channels | `fire-and-forget` |
 | `/request-reply` | Request/Reply | Streams + keyspace-expiry timeout | `order.holdInventory.v1(.response)` |
 | `/work-queue` | Work Queue (competing consumers) | Streams + 1 group, N workers | `jobs.imageProcessing.v1` |
@@ -80,6 +80,15 @@ Decisions & rationale: `docs/adr/`. Open issues: `docs/TODO.md`.
 - **Lua auto-loads** on startup via `RedisLuaFunctionLoader` (`@PostConstruct`, replaces the library).
 - **Stream visualization uses `XREVRANGE`** (read-only, no PENDING side effects); **processing uses
   `XREADGROUP`/Lua**. Don't read groups for display — it creates phantom pending entries.
+- **XNACK semantics (Redis 8.8, verified empirically):** a released message stays in the PEL but
+  **unowned** (`consumer` empty, `idle = -1`) and is immediately re-claimable (bypasses `minIdle`).
+  Counter: `SILENT` → 0, `FAIL` → kept, `FATAL` → `Long.MAX`. `XREADGROUP >` does NOT re-deliver
+  released messages — only the claim path does (`read_claim_or_dlq` uses `CLAIM`, unchanged).
+  JSON precision: `Long.MAX` rounds in JS — the UI detects poison by threshold
+  (`>= Number.MAX_SAFE_INTEGER`), never equality.
+- **Maven incremental compilation is unreliable in this VM** (shared-mount mtimes): after editing
+  Java sources, use `mvn clean test` — plain `mvn test` may say "Nothing to compile" or produce
+  corrupted classes (`ClassFormatError: Truncated class file`).
 - **Live UI updates** come from `RedisStreamListenerService` (one Virtual Thread per monitored
   stream, `XREAD BLOCK 1000`) broadcasting `DLQEvent`/`PubSubEvent` over WebSocket.
 - **Several services clear their demo streams on startup** (`@Order`-sequenced runners) for a clean slate.

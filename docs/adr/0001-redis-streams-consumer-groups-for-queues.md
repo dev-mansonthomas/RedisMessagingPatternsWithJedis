@@ -18,5 +18,6 @@ reserved for explicitly fire-and-forget patterns.
 
 - Get PENDING tracking, `XACK`, `XCLAIM`/`XAUTOCLAIM`, and delivery counts for free.
 - Enables the DLQ pattern (route messages exceeding `maxDeliveries`).
-- Requires **Redis 8.4+** for the `XREADGROUP ... CLAIM` option used by `read_claim_or_dlq` (ADR-0004).
+- Requires **Redis 8.4+** for the `XREADGROUP ... CLAIM` option used by `read_claim_or_dlq` (ADR-0004);
+  the XNACK explicit-failure demo raises the project baseline to **Redis 8.8+** (ADR-0011).
 - Fan-Out diverges by using **one consumer group per worker** so every worker sees every message.

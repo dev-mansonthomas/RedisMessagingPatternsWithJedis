@@ -6,14 +6,17 @@ import com.redis.patterns.dto.DLQEvent;
 import com.redis.patterns.dto.DLQMessage;
 import com.redis.patterns.dto.DLQParameters;
 import com.redis.patterns.dto.DLQResponse;
+import com.redis.patterns.dto.ProcessOutcome;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.StreamEntryID;
+import redis.clients.jedis.commands.ProtocolCommand;
 import redis.clients.jedis.params.XAddParams;
 import redis.clients.jedis.params.XReadGroupParams;
 import redis.clients.jedis.resps.StreamEntry;
+import redis.clients.jedis.util.SafeEncoder;
 
 import java.util.*;
 
@@ -377,6 +380,9 @@ public class DLQMessagingService {
                         message.put("id", entry.getID().toString());
                         message.put("fields", entry.getFields());
                         message.put("deliveryCount", info.getDeliveredTimes());
+                        // XNACK-released entries (Redis 8.8+) have no owner and idle = -1
+                        message.put("consumer", info.getConsumerName() == null ? "" : info.getConsumerName());
+                        message.put("idleMs", info.getIdleTime());
                         messages.add(message);
                     }
                 }
@@ -748,9 +754,26 @@ public class DLQMessagingService {
      * @return Map containing success status and message details
      */
     public Map<String, Object> processNextMessage(boolean shouldSucceed) {
-        log.info("Processing next message with shouldSucceed={}", shouldSucceed);
+        return processNextMessage(ProcessOutcome.fromLegacy(shouldSucceed));
+    }
+
+    /**
+     * Processes the next message and applies the given outcome.
+     *
+     * <p>ACK acknowledges (success), NO_ACK leaves the message owned (implicit failure, retried
+     * after {@code minIdleMs}). The NACK_* outcomes use the Redis 8.8+ {@code XNACK} command:
+     * the message is released immediately (no {@code minIdleMs} wait) and the delivery counter
+     * is kept (FAIL), forced to {@code Long.MAX_VALUE} (FATAL — swept to the DLQ by the next
+     * poll) or reset to 0 (SILENT — the failure budget is refunded).
+     *
+     * @param outcome What to do with the message after reading it
+     * @return Map containing success status and message details
+     */
+    public Map<String, Object> processNextMessage(ProcessOutcome outcome) {
+        log.info("Processing next message with outcome={}", outcome);
 
         Map<String, Object> response = new HashMap<>();
+        response.put("outcome", outcome.name());
 
         try {
             // Get default configuration
@@ -784,13 +807,13 @@ public class DLQMessagingService {
             DLQMessage message = messages.get(0);
             log.info("Processing message: {}", message.getSummary());
 
-            if (shouldSucceed) {
+            if (outcome == ProcessOutcome.ACK) {
                 // Broadcast MESSAGE_PROCESSED event for visual feedback (flash effect) BEFORE deleting
                 webSocketEventService.broadcastEvent(DLQEvent.builder()
                     .eventType(DLQEvent.EventType.MESSAGE_PROCESSED)
                     .messageId(message.getId())
                     .payload(message.getFields())
-                    .deliveryCount(message.getDeliveryCount())
+                    .deliveryCount((long) message.getDeliveryCount())
                     .consumer(params.getConsumerName())
                     .streamName(params.getStreamName())
                     .details("Processing succeeded")
@@ -821,7 +844,7 @@ public class DLQMessagingService {
                     response.put("success", false);
                     response.put("message", "Failed to acknowledge message");
                 }
-            } else {
+            } else if (outcome == ProcessOutcome.NO_ACK) {
                 // Simulate failed processing - do NOT acknowledge (message will retry)
                 response.put("success", true);
                 response.put("message", String.format("✗ Message %s processing failed (will retry, deliveryCount: %d)",
@@ -835,13 +858,60 @@ public class DLQMessagingService {
                     .eventType(DLQEvent.EventType.MESSAGE_RECLAIMED)
                     .messageId(message.getId())
                     .payload(message.getFields())
-                    .deliveryCount(message.getDeliveryCount())
+                    .deliveryCount((long) message.getDeliveryCount())
                     .consumer(params.getConsumerName())
                     .streamName(params.getStreamName())
                     .details("Processing failed - will retry")
                     .build());
 
                 log.info("Message {} not acknowledged - will be retried", message.getId());
+            } else {
+                // Explicit release via XNACK (Redis 8.8+): immediate, no minIdle wait
+                String mode = outcome.xnackMode();
+                long released = xnack(params.getStreamName(), params.getConsumerGroup(), mode, message.getId());
+
+                if (released == 0) {
+                    // Raced: the message was ACKed/claimed away between read and XNACK
+                    response.put("success", false);
+                    response.put("message", String.format(
+                        "Message %s was no longer pending — nothing released", message.getId()));
+                    response.put("messageId", message.getId());
+                    return response;
+                }
+
+                long counterAfter = switch (outcome) {
+                    case NACK_SILENT -> 0L;
+                    case NACK_FATAL -> Long.MAX_VALUE;
+                    default -> (long) message.getDeliveryCount();
+                };
+                String statusMessage = switch (outcome) {
+                    case NACK_FAIL -> String.format(
+                        "✗ Message %s explicitly NACKed (FAIL) — immediately retryable (deliveryCount: %d)",
+                        message.getId(), counterAfter);
+                    case NACK_FATAL -> String.format(
+                        "☠ Message %s poisoned (FATAL) — will be swept to DLQ on next poll", message.getId());
+                    default -> String.format(
+                        "↩ Message %s released (SILENT) — failure budget refunded (deliveryCount: 0)",
+                        message.getId());
+                };
+
+                response.put("success", true);
+                response.put("message", statusMessage);
+                response.put("messageId", message.getId());
+                response.put("deliveryCount", counterAfter);
+                response.put("wasRetry", message.isRetry());
+
+                webSocketEventService.broadcastEvent(DLQEvent.builder()
+                    .eventType(DLQEvent.EventType.MESSAGE_NACKED)
+                    .messageId(message.getId())
+                    .payload(message.getFields())
+                    .deliveryCount(counterAfter)
+                    .consumer(params.getConsumerName())
+                    .streamName(params.getStreamName())
+                    .details("XNACK " + mode)
+                    .build());
+
+                log.info("Message {} XNACKed with mode {}", message.getId(), mode);
             }
 
             return response;
@@ -852,6 +922,29 @@ public class DLQMessagingService {
             response.put("message", "Error: " + e.getMessage());
             return response;
         }
+    }
+
+    /**
+     * Releases a pending message back to the group's PEL via XNACK (Redis 8.8+).
+     *
+     * <p>Raw command: no stable Jedis release has a typed {@code xnack()} yet (only 8.0.0-beta1,
+     * which also lacks RETRYCOUNT/FORCE). Package-private for tests.
+     *
+     * @param mode XNACK mode token: {@code FAIL}, {@code FATAL} or {@code SILENT}
+     * @return number of messages actually released (0 if the id was not pending)
+     */
+    long xnack(String streamName, String groupName, String mode, String messageId) {
+        try (var jedis = jedisPool.getResource()) {
+            return (Long) jedis.sendCommand(XnackCommand.XNACK,
+                streamName, groupName, mode, "IDS", "1", messageId);
+        }
+    }
+
+    /** XNACK is not in Jedis' {@code Protocol.Command} yet — minimal raw-command carrier. */
+    private enum XnackCommand implements ProtocolCommand {
+        XNACK;
+        private final byte[] raw = SafeEncoder.encode(name());
+        @Override public byte[] getRaw() { return raw; }
     }
 
     /**

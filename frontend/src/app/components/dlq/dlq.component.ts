@@ -97,9 +97,18 @@ import { DiagramDefinitionsService } from '../../services/diagram-definitions.se
             <div class="code-block">
               <div class="code-line"><span class="keyword">function</span> <span class="error"> processFail</span>()  <span class="comment">// Java</span>:</div>
               <div class="code-line indent1">msg = <span class="function">getNextMessages</span>()</div>
-              <div class="code-line indent1"><span class="comment">// ❌ No ACK → stays in PENDING</span></div>
-              <div class="code-line indent1"><span class="comment">// → will retry until max deliveries</span></div>
-              <div class="code-line indent1"><span class="comment">// → then added to DLQ + removed from UI</span></div>
+              <div class="code-line indent1"><span class="comment">// ❌ No ACK → stays in PENDING (owned)</span></div>
+              <div class="code-line indent1"><span class="comment">// → retried only after minIdleMs</span></div>
+              <div class="code-line indent1"><span class="comment">// → redelivered until deliveries == maxDeliveries</span></div>
+              <div class="code-line indent1"><span class="comment">// → NEXT poll sweeps it to DLQ + removes it from UI</span></div>
+            </div>
+            <div class="code-block">
+              <div class="code-line"><span class="keyword">function</span> <span class="error"> processExplicitFail</span>()  <span class="comment">// Redis 8.8+</span>:</div>
+              <div class="code-line indent1">msg = <span class="function">getNextMessages</span>()</div>
+              <div class="code-line indent1"><span class="function">XNACK</span>(msg, FAIL | FATAL | SILENT)</div>
+              <div class="code-line indent1"><span class="comment">// released NOW — no minIdle wait</span></div>
+              <div class="code-line indent1"><span class="comment">// FAIL: budget kept · FATAL: → DLQ next poll</span></div>
+              <div class="code-line indent1"><span class="comment">// SILENT: budget refunded (deliveries = 0)</span></div>
             </div>
           </div>
         </div>

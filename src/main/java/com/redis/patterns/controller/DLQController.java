@@ -3,6 +3,7 @@ package com.redis.patterns.controller;
 import com.redis.patterns.dto.DLQConfigRequest;
 import com.redis.patterns.dto.DLQParameters;
 import com.redis.patterns.dto.DLQResponse;
+import com.redis.patterns.dto.ProcessOutcome;
 import com.redis.patterns.service.DLQConfigService;
 import com.redis.patterns.service.DLQMessagingService;
 import jakarta.validation.Valid;
@@ -374,12 +375,28 @@ public class DLQController {
      */
     @PostMapping("/process")
     public ResponseEntity<Map<String, Object>> processMessage(@RequestBody Map<String, Object> request) {
-        boolean shouldSucceed = (Boolean) request.getOrDefault("shouldSucceed", true);
+        // Canonical body: {"outcome": ACK|NO_ACK|NACK_FAIL|NACK_FATAL|NACK_SILENT}.
+        // Legacy body {"shouldSucceed": bool} still maps to ACK/NO_ACK.
+        ProcessOutcome outcome;
+        Object rawOutcome = request.get("outcome");
+        if (rawOutcome != null) {
+            try {
+                outcome = ProcessOutcome.valueOf(rawOutcome.toString());
+            } catch (IllegalArgumentException e) {
+                log.warn("Rejected /process request with invalid outcome '{}'", rawOutcome);
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", false);
+                response.put("message", "Invalid outcome: " + rawOutcome);
+                return ResponseEntity.badRequest().body(response);
+            }
+        } else {
+            outcome = ProcessOutcome.fromLegacy((Boolean) request.getOrDefault("shouldSucceed", true));
+        }
 
-        log.info("Processing message with shouldSucceed={}", shouldSucceed);
+        log.info("Processing message with outcome={}", outcome);
 
         try {
-            Map<String, Object> result = dlqMessagingService.processNextMessage(shouldSucceed);
+            Map<String, Object> result = dlqMessagingService.processNextMessage(outcome);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             log.error("Error processing message", e);

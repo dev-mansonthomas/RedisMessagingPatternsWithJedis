@@ -213,7 +213,7 @@ shows `pending` transiently then `0`.
 ## Dependencies & risks
 
 - **Stack (verify latest stable via Context7 before coding):** Spring Boot 3.5.7, Jedis 7.1.0,
-  Java 21 (Virtual Threads), Angular 21, Redis 8.4-alpine. Reuse `JedisPool` (`RedisConfig`),
+  Java 21 (Virtual Threads), Angular 21, Redis 8.8-alpine. Reuse `JedisPool` (`RedisConfig`),
   `WebSocketEventService`, and the VT loop pattern from `RedisStreamListenerService`.
 - **Riskiest part:** the responder must **not** re-generate on its own assistant entries — get the
   `role != user → XACK & skip` guard right, or the loop never terminates. Second risk: WebSocket is

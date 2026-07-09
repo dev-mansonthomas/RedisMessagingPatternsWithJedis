@@ -17,7 +17,7 @@ flowchart TB
         end
 
         LUA -->|"XREADGROUP<br/>test-group"| MS
-        LUA -->|"XADD<br/>(if redelivery > 2)"| DLQ
+        LUA -->|"XADD<br/>(if deliveries ≥ maxDeliveries)"| DLQ
     end
 
     subgraph Consumer["⚙️ Consumer"]
@@ -64,12 +64,12 @@ sequenceDiagram
     Note over W: ❌ Processing fails again
     
     W->>LUA: FCALL read_claim_or_dlq
-    LUA->>R: XREADGROUP CLAIM
-    R-->>LUA: Message (delivery_count: 3)
-    Note over LUA: delivery_count ≥ maxDeliveries!
-    LUA->>DLQ: XADD to DLQ
+    LUA->>R: XPENDING (idle ≥ minIdle)
+    Note over LUA: delivery_count = 2 ≥ maxDeliveries<br/>sweep before any re-read
+    LUA->>R: XCLAIM (take ownership)
+    LUA->>DLQ: XADD (copy message)
     LUA->>R: XACK (remove from pending)
-    LUA-->>W: DLQ notification
+    LUA-->>W: no message to process<br/>+ DLQ ids [original, dlq]
     
     Note over DLQ: Message preserved for inspection
 ```
@@ -78,7 +78,31 @@ sequenceDiagram
 
 - **Automatic Retry**: Failed messages automatically re-delivered
 - **Delivery Counter**: Redis tracks how many times a message was delivered
-- **Max Deliveries**: After N failures, message goes to DLQ
+- **Max Deliveries**: after `maxDeliveries` failed deliveries, the **next** poll sweeps the message to the DLQ — `maxDeliveries`+1 calls in total, each ≥ `minIdleMs` apart (the DLQ check reads `XPENDING` *before* re-reading, so it only sees counts from previous calls)
+- **Explicit failure (`XNACK`, Redis 8.8+)**: bypasses the `minIdleMs` wait — the released message is unowned (`idle = -1`) and immediately re-claimable. `FAIL` keeps the counter, `FATAL` forces it to max (next poll sweeps to DLQ instantly), `SILENT` resets it to 0 (failure budget refunded). See ADR-0011.
+
+## Explicit failure lane (XNACK)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant R as Redis Stream
+    participant LUA as Lua Function
+    participant W as Worker
+    participant DLQ as Dead Letter Queue
+
+    W->>LUA: FCALL read_claim_or_dlq
+    LUA-->>W: Message (delivery_count: 1)
+    Note over W: ❌ Poison detected
+    W->>R: XNACK FATAL IDS 1 id
+    Note over R: PEL entry unowned (idle = -1)<br/>delivery_count = MAX
+
+    W->>LUA: FCALL read_claim_or_dlq (immediately)
+    LUA->>R: XPENDING — no minIdle wait needed
+    LUA->>DLQ: XCLAIM + XADD copy
+    LUA->>R: XACK
+    LUA-->>W: no message + DLQ ids [original, dlq]
+```
 - **Atomic Operation**: Lua function ensures claim+read is atomic
 - **Inspection**: DLQ messages can be inspected and manually reprocessed
 

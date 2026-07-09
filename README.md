@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/License-LGPL%202.1-blue?style=for-the-badge)](./LICENSE)
 [![Java](https://img.shields.io/badge/Java-21-007396?style=for-the-badge&logo=openjdk&logoColor=white)](https://openjdk.org/)
-[![Redis](https://img.shields.io/badge/Redis-8.4-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
+[![Redis](https://img.shields.io/badge/Redis-8.8-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
 [![Jedis](https://img.shields.io/badge/Jedis-7.1.0-DC382D?style=for-the-badge)](https://github.com/redis/jedis)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.7-6DB33F?style=for-the-badge&logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Angular](https://img.shields.io/badge/Angular-21-DD0031?style=for-the-badge&logo=angular&logoColor=white)](https://angular.io)
@@ -274,7 +274,8 @@ Detailed contracts (Redis keys, endpoints, edge cases) live in [`docs/specs/`](d
 
 **Use case**: E-commerce order processing where some orders fail validation.
 
-**Key concepts**: Consumer Groups track delivery count; after N failed attempts messages go to a `:dlq` stream; failed messages can be inspected and reprocessed. (Lua `read_claim_or_dlq`.)
+**Key concepts**: Consumer Groups track delivery count; after `maxDeliveries` failed deliveries the **next** poll sweeps the message to a `:dlq` stream; failed messages can be inspected and reprocessed. (Lua `read_claim_or_dlq`.)
+**Explicit failure (Redis 8.8 `XNACK`)**: three extra buttons release a message without waiting `minIdleMs` — *Explicit Fail* (`FAIL`: budget kept), *Poison* (`FATAL`: counter forced to max → DLQ on next poll), *Release silent* (`SILENT`: budget refunded, e.g. graceful shutdown).
 
 ### 2. 📢 Publish/Subscribe (Pub/Sub) — `/pubsub`
 
@@ -366,7 +367,7 @@ See [`docs/diagrams/llm-chat.md`](docs/diagrams/llm-chat.md) and [`docs/specs/ll
 
 | Technology | Purpose | Why We Use It |
 |------------|---------|---------------|
-| **Redis 8.4** | Message broker | In-memory speed, Streams support, Functions |
+| **Redis 8.8** | Message broker | In-memory speed, Streams support, Functions, XNACK |
 | **Redis Streams** | Message queuing | Persistence, consumer groups, delivery tracking |
 | **Redis Functions** | Atomic operations | Run Lua scripts server-side for consistency |
 | **Redis Pub/Sub** | Broadcast messaging | Real-time fan-out to multiple subscribers |
@@ -395,8 +396,8 @@ For development with hot-reload and debugging capabilities, run services separat
 ### Step 1: Start Redis
 
 ```bash
-# Start Redis 8.4 with Docker
-docker run -d --name redis-messaging -p 6379:6379 redis:8.4-alpine
+# Start Redis 8.8 with Docker
+docker run -d --name redis-messaging -p 6379:6379 redis:8.8-alpine
 
 # Verify it's running
 docker exec redis-messaging redis-cli PING
@@ -441,7 +442,7 @@ This section highlights the most important files for understanding each pattern.
 | **[`lua/stream_utils.lua`](lua/stream_utils.lua)** | **All Redis Functions in one file**: `read_claim_or_dlq`, `request`, `response` |
 
 **What to look for**:
-- `read_claim_or_dlq` (line 59): Uses Redis 8.4's `XREADGROUP CLAIM` for atomic claim+read
+- `read_claim_or_dlq` (line 59): Uses `XREADGROUP CLAIM` (introduced in Redis 8.4) for atomic claim+read
 - `request` (line 188): Creates timeout tracking keys with `SET EX` and posts to stream
 - `response` (line 279): Deletes timeout key and posts response
 

@@ -13,6 +13,9 @@ export interface StreamMessage {
   isFlashingSuccess?: boolean;  // For visual feedback on successful processing (green)
   pendingDeletion?: boolean;  // Mark message for deletion after animation completes
   isNextToProcess?: boolean;  // Indicates this is the next message to be processed by consumer
+  deliveryCount?: number;     // PEL delivery counter (only when the entry is pending)
+  isReleased?: boolean;       // XNACK-released: pending but unowned (consumer empty / idle -1)
+  isPoison?: boolean;         // XNACK FATAL: counter at Long.MAX (rendered as ∞ — JSON rounds it)
 }
 
 /**
@@ -56,6 +59,11 @@ export interface StreamMessage {
           <span *ngIf="showNextIndicator && message.isNextToProcess" class="next-indicator">➡️</span>
           <div class="message-header">
             <span class="message-id">{{ message.id }}</span>
+            <span class="badges">
+              <span *ngIf="message.isPoison" class="badge poison" title="XNACK FATAL: delivery counter at max — swept to DLQ on next poll">∞ poison</span>
+              <span *ngIf="!message.isPoison && message.deliveryCount !== undefined" class="badge deliveries" title="PEL delivery count">{{ message.deliveryCount }}×</span>
+              <span *ngIf="message.isReleased" class="badge released" title="XNACK-released: unowned, immediately re-claimable">released</span>
+            </span>
           </div>
           <div class="message-content">
             <div *ngFor="let field of getFields(message.fields)" class="field-row">
@@ -287,6 +295,41 @@ export interface StreamMessage {
       background: #f8fafc;
       padding: 6px 10px;
       border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .badges {
+      display: flex;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .badge {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .badge.deliveries {
+      background: #e0e7ff;
+      color: #3730a3;
+    }
+
+    .badge.released {
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px dashed #94a3b8;
+    }
+
+    .badge.poison {
+      background: #450a0a;
+      color: #fecaca;
     }
 
     .message-id {
@@ -405,6 +448,42 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Merge PEL info (delivery count, released/poison state) into the displayed entries.
+   * Only meaningful when a consumer group is set; entries not in the PEL get their
+   * pending markers cleared. Poison detection is threshold-based: Long.MAX arrives
+   * rounded through JSON, so equality would never match.
+   */
+  private refreshPendingInfo(): void {
+    if (!this.group) {
+      return;
+    }
+    this.apiService.getPendingMessages(this.stream, this.group, this.pageSize).subscribe({
+      next: (response) => {
+        if (!response.success || !response.messages) {
+          return;
+        }
+        const byId = new Map(response.messages.map(m => [m.id, m]));
+        this.displayedMessages.forEach(msg => {
+          const pel = byId.get(msg.id);
+          if (pel) {
+            msg.isPoison = (pel.deliveryCount ?? 0) >= Number.MAX_SAFE_INTEGER;
+            msg.deliveryCount = pel.deliveryCount;
+            msg.isReleased = pel.consumer === '' || (pel.idleMs ?? 0) < 0;
+          } else {
+            msg.deliveryCount = undefined;
+            msg.isReleased = false;
+            msg.isPoison = false;
+          }
+        });
+        this.cdr.markForCheck();
+      },
+      error: (error) => {
+        console.warn(`StreamViewer [${this.stream}]: Failed to load pending info`, error);
+      }
+    });
+  }
+
   private loadInitialData(): void {
     this.isLoading = true;
 
@@ -430,6 +509,7 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
 
           // Update next indicator after loading messages
           this.updateNextIndicator();
+          this.refreshPendingInfo();
         } else {
           console.warn(`StreamViewer [${this.stream}]: Response not successful or no messages`, response);
         }
@@ -528,6 +608,15 @@ export class StreamViewerComponent implements OnInit, OnDestroy {
 
       // Move indicator to next message in the list (simple, no backend call)
       this.moveIndicatorToNextMessage(event.messageId);
+      this.refreshPendingInfo();
+      return;
+    }
+
+    // Handle MESSAGE_NACKED (XNACK, Redis 8.8+): flash + refresh released/poison badges
+    if (event.eventType === 'MESSAGE_NACKED' && event.messageId) {
+      console.log(`StreamViewer [${this.stream}]: ⚡ MESSAGE_NACKED received (${event.details})`);
+      this.flashMessage(event.messageId);
+      this.refreshPendingInfo();
       return;
     }
 

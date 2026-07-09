@@ -29,7 +29,7 @@ flowchart TB
         end
 
         LUA -->|XREADGROUP| ES
-        LUA -->|"XADD<br/>(if redelivery > 2)"| DLQ
+        LUA -->|"XADD<br/>(if deliveries ≥ maxDeliveries)"| DLQ
     end
 
     P1 -->|XADD| ES
