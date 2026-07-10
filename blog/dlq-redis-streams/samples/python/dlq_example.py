@@ -1,40 +1,43 @@
 """Dead Letter Queue on Redis Streams — call read_claim_or_dlq and print its reply.
 
-This sample assumes NO prior Redis knowledge: it calls one server-side function
-and walks its result, and the comments explain both.
+This sample assumes no prior Redis knowledge.
 
-Blog post: https://github.com/dev-mansonthomas/RedisMessagingPatternsWithJedis/tree/blog-dlq-v1/blog/dlq-redis-streams
-Prereq:    Redis 8.8+ with samples/setup.sh applied. Target override: REDIS_URL env var.
-Run:       uv run dlq_example.py
+QUICKSTART — paste the indented lines into a terminal (needs Docker + uv):
 
-────────────────────────────────────────────────────────────────────────────
+    git clone https://github.com/dev-mansonthomas/RedisMessagingPatternsWithJedis.git
+    cd RedisMessagingPatternsWithJedis
+    export REDIS_URL="redis://localhost:$(./blog/dlq-redis-streams/samples/setup.sh)"
+    cd blog/dlq-redis-streams/samples/python && uv run dlq_example.py
+
+setup.sh loads the Lua function and, if nothing is already listening on
+localhost:6379, starts a throwaway Redis 8.8 in Docker on a free port and prints
+that port — captured above into REDIS_URL. Blog post & the other five languages:
+https://github.com/dev-mansonthomas/RedisMessagingPatternsWithJedis/tree/blog-dlq-v1/blog/dlq-redis-streams
+
 A 60-second primer
-────────────────────────────────────────────────────────────────────────────
-• A Redis *stream* is an append-only log. Each entry has an ID like "1699-0" and
-  a flat list of field/value pairs, e.g. ["type", "order.created", "order_id", "1001"].
-• A *consumer group* lets several workers share one stream. For every entry it
-  remembers which consumer currently holds it and how many times it has been
-  delivered — that delivery count is the retry budget the DLQ pattern is built on.
-• Instead of sending the raw stream commands ourselves, we call ONE function that
-  lives on the server, `read_claim_or_dlq` (written in Lua — see lua/stream_utils.lua).
-  `FCALL` runs it atomically on the server and hands us back its return value.
+  - A Redis *stream* is an append-only log. Each entry has an ID like "1699-0" and
+    a flat list of field/value pairs, e.g. ["type", "order.created", "order_id", "1001"].
+  - A *consumer group* lets several workers share one stream. For every entry it
+    remembers which consumer holds it and how many times it has been delivered —
+    that delivery count is the retry budget the DLQ pattern is built on.
+  - Instead of sending the raw stream commands ourselves, we call ONE function that
+    lives on the server, read_claim_or_dlq (Lua — see lua/stream_utils.lua). FCALL
+    runs it atomically on the server and hands us back its return value.
 
-────────────────────────────────────────────────────────────────────────────
-What read_claim_or_dlq returns  (this maps 1:1 onto the Lua `return { ... }`)
-────────────────────────────────────────────────────────────────────────────
-The Lua function ends with:   return { messages_to_process, dlq_ids }
-so the reply is a 2-element list:
+What read_claim_or_dlq returns  (this maps 1:1 onto the Lua "return { ... }")
+  The Lua function ends with:  return { messages_to_process, dlq_ids }
+  so the reply is a 2-element list:
 
-  result[0] = messages_to_process  → entries you should handle now.
-              Each item is [ id, [f1, v1, f2, v2, ...] ].
-              That inner flat list is exactly what the XREADGROUP command returns.
+    result[0] = messages_to_process -> entries you should handle now.
+                Each item is [ id, [f1, v1, f2, v2, ...] ].
+                That inner flat list is exactly what the XREADGROUP command returns.
 
-  result[1] = dlq_ids              → messages the function just swept to the
-              dead-letter stream. Each item is [ original_id, new_dlq_id ]: the
-              entry left `test-stream` and now lives in `test-stream:dlq`.
+    result[1] = dlq_ids             -> messages the function just swept to the
+                dead-letter stream. Each item is [ original_id, new_dlq_id ]: the
+                entry left test-stream and now lives in test-stream:dlq.
 
-Either list may be empty (nothing to do / nothing dead-lettered). redis-py maps
-the whole nested Lua table to nested Python lists, so we index it positionally.
+  Either list may be empty (nothing to do / nothing dead-lettered). redis-py maps
+  the whole nested Lua table to nested Python lists, so we index it positionally.
 """
 
 import os

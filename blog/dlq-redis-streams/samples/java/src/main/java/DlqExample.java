@@ -1,33 +1,36 @@
-/**
- * Dead Letter Queue on Redis Streams — call read_claim_or_dlq and print its reply.
- *
- * <p>This sample assumes no prior Redis knowledge; the comments walk through both
- * the call and the structure it returns.
- *
- * <p>Blog post: https://github.com/dev-mansonthomas/RedisMessagingPatternsWithJedis/tree/blog-dlq-v1/blog/dlq-redis-streams
- * <br>Prereq: Redis 8.8+ with samples/setup.sh applied. Target override: REDIS_URL env var.
- * <br>Run: mvn -q compile exec:java
- *
- * <h2>A 60-second primer</h2>
- * <ul>
- *   <li>A Redis <i>stream</i> is an append-only log. Each entry has an ID ("1699-0")
- *       and a flat list of field/value pairs, e.g. [type, order.created, order_id, 1001].
- *   <li>A <i>consumer group</i> tracks, per entry, which consumer holds it and how
- *       many times it was delivered — that delivery count is the DLQ retry budget.
- *   <li>We don't send the raw stream commands; we FCALL one server-side Lua function,
- *       read_claim_or_dlq (see lua/stream_utils.lua), which Redis runs atomically.
- * </ul>
- *
- * <h2>What read_claim_or_dlq returns (maps 1:1 to the Lua {@code return { a, b }})</h2>
- * <pre>
- *   result.get(0) = messages to process → each entry is [ id, [f1, v1, f2, v2, ...] ]
- *                                          (the flat field list XREADGROUP returns)
- *   result.get(1) = dlq_ids             → each is [ original_id, new_dlq_id ]: the entry
- *                                          left test-stream and now lives in test-stream:dlq
- * </pre>
- * Either list may be empty. Jedis returns the nested Lua tables as nested {@code List}s,
- * and Redis bulk strings arrive as {@code byte[]} — hence the {@code str()} helper.
- */
+/*
+Dead Letter Queue on Redis Streams — call read_claim_or_dlq and print its reply.
+This sample assumes no prior Redis knowledge.
+
+QUICKSTART — paste the indented lines into a terminal (needs Docker + JDK 21 + Maven):
+
+    git clone https://github.com/dev-mansonthomas/RedisMessagingPatternsWithJedis.git
+    cd RedisMessagingPatternsWithJedis
+    export REDIS_URL="redis://localhost:$(./blog/dlq-redis-streams/samples/setup.sh)"
+    cd blog/dlq-redis-streams/samples/java && mvn -q compile exec:java
+
+setup.sh loads the Lua function and, if nothing is already listening on
+localhost:6379, starts a throwaway Redis 8.8 in Docker on a free port and prints
+that port — captured above into REDIS_URL. Blog post & the other five languages:
+https://github.com/dev-mansonthomas/RedisMessagingPatternsWithJedis/tree/blog-dlq-v1/blog/dlq-redis-streams
+
+A 60-second primer
+  - A Redis *stream* is an append-only log. Each entry has an ID ("1699-0") and a
+    flat list of field/value pairs, e.g. [type, order.created, order_id, 1001].
+  - A *consumer group* tracks, per entry, which consumer holds it and how many
+    times it was delivered — that delivery count is the DLQ retry budget.
+  - We don't send the raw stream commands; we FCALL one server-side Lua function,
+    read_claim_or_dlq (lua/stream_utils.lua), which Redis runs atomically.
+
+What read_claim_or_dlq returns (maps 1:1 to the Lua "return { a, b }")
+  The reply is a 2-element list:
+    result.get(0) = messages to process -> each entry is [ id, [f1, v1, f2, v2, ...] ]
+                                           (the flat field list XREADGROUP returns)
+    result.get(1) = dlq_ids             -> each is [ original_id, new_dlq_id ]: the entry
+                                           left test-stream and now lives in test-stream:dlq
+  Either list may be empty. Jedis returns the nested Lua tables as nested Lists, and
+  Redis bulk strings arrive as byte[] — hence the str() helper.
+*/
 import java.util.List;
 import redis.clients.jedis.JedisPooled;
 
