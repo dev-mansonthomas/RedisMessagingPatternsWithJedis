@@ -2,7 +2,8 @@
 
 > First slice of `docs/product/brief-blog-series.md`. Written for agents: implement exactly this.
 > Branch: `blog/dlq-post`. Publication tag (created by the author, on the host, at publish time):
-> **`blog-dlq-v1`**.
+> **`blog-dlq-v1`** — see [`blog/PUBLISHING.md`](../../blog/PUBLISHING.md) for the exact host-side
+> commands (the pinned permalinks 404 until that tag is pushed).
 
 ## Purpose
 
